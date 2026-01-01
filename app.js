@@ -1,8 +1,16 @@
+// Americas Map Quiz (GitHub Pages)
+// Uses americas.svg (BlankMap-Americas.svg renamed to americas.svg)
+//
+// The SVG uses lowercase ISO-2 IDs (e.g., us, ca, mx, br).
+// Option A: Keep tiny Caribbean islands visible but disabled.
+
 const COUNTRIES = [
+  // North America
   { id: "ca", name: "Canada" },
   { id: "us", name: "United States" },
   { id: "mx", name: "Mexico" },
 
+  // Central America
   { id: "bz", name: "Belize" },
   { id: "gt", name: "Guatemala" },
   { id: "hn", name: "Honduras" },
@@ -11,6 +19,7 @@ const COUNTRIES = [
   { id: "cr", name: "Costa Rica" },
   { id: "pa", name: "Panama" },
 
+  // South America
   { id: "co", name: "Colombia" },
   { id: "ve", name: "Venezuela" },
   { id: "gy", name: "Guyana" },
@@ -24,21 +33,19 @@ const COUNTRIES = [
   { id: "ar", name: "Argentina" },
   { id: "uy", name: "Uruguay" },
 
+  // Caribbean (larger / commonly assessed)
   { id: "bs", name: "Bahamas" },
   { id: "cu", name: "Cuba" },
   { id: "jm", name: "Jamaica" },
   { id: "ht", name: "Haiti" },
   { id: "do", name: "Dominican Republic" },
-  { id: "tt", name: "Trinidad and Tobago" },
-  { id: "bb", name: "Barbados" },
-  { id: "gd", name: "Grenada" },
-  { id: "lc", name: "Saint Lucia" },
-  { id: "vc", name: "Saint Vincent and the Grenadines" },
-  { id: "ag", name: "Antigua and Barbuda" },
-  { id: "kn", name: "Saint Kitts and Nevis" },
-  { id: "dm", name: "Dominica" }
+  { id: "tt", name: "Trinidad and Tobago" }
 ];
 
+// Keep these visible but NOT clickable and NOT included in prompts.
+const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
+
+// ---------- DOM ----------
 const mapContainer = document.getElementById("mapContainer");
 const mapStatus = document.getElementById("mapStatus");
 const promptEl = document.getElementById("prompt");
@@ -49,17 +56,22 @@ const resultsEl = document.getElementById("results");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 
+// ---------- State ----------
 let order = [];
 let index = 0;
+
 let running = false;
 let startTime = 0;
 let rafId = 0;
-let score = 0;
-let firstClickUsed = false;
+
+let score = 0;               // points earned (only first click per prompt)
+let firstClickUsed = false;  // for current prompt
+
 const total = COUNTRIES.length;
 const byId = new Map(COUNTRIES.map(c => [c.id, c]));
-const completed = new Set();
+const completed = new Set(); // ids already finished
 
+// ---------- Helpers ----------
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -102,18 +114,30 @@ function resetUI() {
   resultsEl.classList.add("muted");
   resultsEl.textContent = "Press Start to begin.";
   timerEl.textContent = "0.0s";
+
   score = 0;
   index = 0;
   firstClickUsed = false;
   completed.clear();
+
   setProgress();
   setPrompt(null);
+
   startBtn.disabled = false;
   restartBtn.disabled = true;
 
+  // Reset classes for active quiz countries
   for (const { id } of COUNTRIES) {
     const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
     if (el) el.setAttribute("class", "country");
+  }
+
+  // Re-apply disabled styling (in case restart)
+  for (const id of DISABLED_ISLANDS) {
+    const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
+    if (!el) continue;
+    el.classList.add("disabled-island");
+    el.style.pointerEvents = "none";
   }
 }
 
@@ -128,6 +152,7 @@ function showFinal() {
   `;
 }
 
+// ---------- Quiz flow ----------
 function nextPrompt() {
   if (index >= total) {
     stopTimer();
@@ -143,6 +168,7 @@ function nextPrompt() {
   setStatus("Click the correct country on the map.");
 }
 
+// ---------- Click feedback ----------
 function markWrong(el) {
   el.classList.add("wrong");
   setTimeout(() => el.classList.remove("wrong"), 220);
@@ -152,6 +178,7 @@ function markCorrect(el) {
   el.classList.add("correct", "locked");
 }
 
+// ---------- Click handling ----------
 function handleCountryClick(id, el) {
   if (!running) return;
   if (completed.has(id)) return;
@@ -160,85 +187,5 @@ function handleCountryClick(id, el) {
   if (!targetId) return;
 
   if (id === targetId) {
-    if (!firstClickUsed) score += 1;
-
-    completed.add(id);
-    markCorrect(el);
-
-    index += 1;
-    setProgress();
-    nextPrompt();
-  } else {
-    if (!firstClickUsed) firstClickUsed = true;
-    markWrong(el);
-    setStatus("Nope — try again.");
-  }
-}
-
-async function loadSVG() {
-  try {
-    setStatus("Loading map…");
-    const res = await fetch("americas.svg", { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const svgText = await res.text();
-    mapContainer.innerHTML = svgText;
-
-    let found = 0;
-    for (const { id } of COUNTRIES) {
-      const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
-      if (!el) continue;
-
-      found += 1;
-      el.classList.add("country");
-      el.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        handleCountryClick(id, el);
-      });
-    }
-
-    const missing = COUNTRIES.filter(c => !mapContainer.querySelector(`#${CSS.escape(c.id)}`));
-    if (missing.length) {
-      setStatus(`Map loaded, but missing ${missing.length} IDs (open console).`);
-      console.warn("Missing IDs:", missing.map(m => m.id));
-    } else {
-      setStatus("Map loaded.");
-    }
-
-    setProgress();
-    setPrompt(null);
-  } catch (err) {
-    console.error(err);
-    setStatus('Failed to load "americas.svg"');
-    resultsEl.classList.remove("muted");
-    resultsEl.textContent = 'Could not load americas.svg. Make sure it is in the repo root.';
-  }
-}
-
-startBtn.addEventListener("click", () => {
-  order = shuffle(COUNTRIES.map(c => c.id));
-  index = 0;
-  score = 0;
-  completed.clear();
-  firstClickUsed = false;
-
-  resultsEl.classList.add("muted");
-  resultsEl.textContent = "Quiz running…";
-  startBtn.disabled = true;
-  restartBtn.disabled = false;
-
-  startTime = performance.now();
-  running = true;
-  tick();
-
-  setProgress();
-  nextPrompt();
-});
-
-restartBtn.addEventListener("click", () => {
-  stopTimer();
-  resetUI();
-});
-
-resetUI();
-loadSVG();
+    // Award point only if first click for this prompt
+    if (!firstClickUsed) score += 1
