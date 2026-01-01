@@ -3,6 +3,8 @@
 //
 // The SVG uses lowercase ISO-2 IDs (e.g., us, ca, mx, br).
 // Option A: Keep tiny Caribbean islands visible but disabled.
+// Add-ons: (1) longer red flash on wrong clicks, (2) TTS speaks each country name,
+// (3) wrong-click error beep sound (no external audio files needed).
 
 const COUNTRIES = [
   // North America
@@ -44,6 +46,83 @@ const COUNTRIES = [
 
 // Keep these visible but NOT clickable and NOT included in prompts.
 const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
+
+// ---------- Speech (Text-to-Speech) ----------
+let speechEnabled = true;
+let selectedVoice = null;
+
+function pickVoice() {
+  if (!("speechSynthesis" in window)) return;
+  const voices = window.speechSynthesis.getVoices() || [];
+  if (!voices.length) return;
+
+  // Prefer an English voice if available
+  selectedVoice =
+    voices.find(v => /^en(-|_)?/i.test(v.lang) && /Google|Microsoft|Samantha|Daniel|Alex/i.test(v.name)) ||
+    voices.find(v => /^en(-|_)?/i.test(v.lang)) ||
+    voices[0];
+}
+
+// Some browsers load voices asynchronously
+if ("speechSynthesis" in window) {
+  pickVoice();
+  window.speechSynthesis.onvoiceschanged = () => pickVoice();
+}
+
+function speak(text) {
+  if (!speechEnabled) return;
+  if (!("speechSynthesis" in window)) return;
+
+  // Cancel queued speech so it stays snappy
+  window.speechSynthesis.cancel();
+
+  const u = new SpeechSynthesisUtterance(text);
+  if (selectedVoice) u.voice = selectedVoice;
+  u.rate = 0.95;  // slightly slower for clarity
+  u.pitch = 1.0;
+  u.volume = 1.0;
+
+  window.speechSynthesis.speak(u);
+}
+
+// ---------- SFX (Web Audio) ----------
+let sfxEnabled = true;
+let audioCtx = null;
+
+function ensureAudio() {
+  if (!(window.AudioContext || window.webkitAudioContext)) return;
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+
+function playWrongBeep() {
+  if (!sfxEnabled) return;
+  if (!(window.AudioContext || window.webkitAudioContext)) return;
+
+  ensureAudio();
+  if (!audioCtx) return;
+
+  const t0 = audioCtx.currentTime;
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  // Error sound: quick down-sweep
+  osc.type = "square";
+  osc.frequency.setValueAtTime(440, t0);
+  osc.frequency.exponentialRampToValueAtTime(220, t0 + 0.12);
+
+  // Envelope
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.start(t0);
+  osc.stop(t0 + 0.18);
+}
 
 // ---------- DOM ----------
 const mapContainer = document.getElementById("mapContainer");
@@ -164,14 +243,18 @@ function nextPrompt() {
 
   firstClickUsed = false;
   const id = order[index];
-  setPrompt(byId.get(id));
+  const country = byId.get(id);
+
+  setPrompt(country);
+  speak(country.name);
   setStatus("Click the correct country on the map.");
 }
 
 // ---------- Click feedback ----------
 function markWrong(el) {
   el.classList.add("wrong");
-  setTimeout(() => el.classList.remove("wrong"), 220);
+  // Keep it red for a full second
+  setTimeout(() => el.classList.remove("wrong"), 1000);
 }
 
 function markCorrect(el) {
@@ -188,4 +271,106 @@ function handleCountryClick(id, el) {
 
   if (id === targetId) {
     // Award point only if first click for this prompt
-    if (!firstClickUsed) score += 1
+    if (!firstClickUsed) score += 1;
+
+    completed.add(id);
+    markCorrect(el);
+
+    index += 1;
+    setProgress();
+    nextPrompt();
+  } else {
+    // Wrong click: consumes first click for point eligibility
+    if (!firstClickUsed) firstClickUsed = true;
+
+    playWrongBeep();
+    markWrong(el);
+    setStatus("Nope — try again.");
+  }
+}
+
+// ---------- SVG loading ----------
+async function loadSVG() {
+  try {
+    setStatus("Loading map…");
+    const res = await fetch("americas.svg", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const svgText = await res.text();
+    mapContainer.innerHTML = svgText;
+
+    // Wire up active quiz countries
+    for (const { id } of COUNTRIES) {
+      const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
+      if (!el) continue;
+
+      el.classList.add("country");
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleCountryClick(id, el);
+      });
+    }
+
+    // Disable tiny Caribbean islands (still visible)
+    for (const id of DISABLED_ISLANDS) {
+      const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
+      if (!el) continue;
+      el.classList.add("disabled-island");
+      el.style.pointerEvents = "none";
+    }
+
+    const missing = COUNTRIES.filter(c => !mapContainer.querySelector(`#${CSS.escape(c.id)}`));
+    if (missing.length) {
+      setStatus(`Map loaded, but missing ${missing.length} IDs (open console).`);
+      console.warn("Missing IDs:", missing.map(m => m.id));
+    } else {
+      setStatus("Map loaded.");
+    }
+
+    setProgress();
+    setPrompt(null);
+  } catch (err) {
+    console.error(err);
+    setStatus('Failed to load "americas.svg"');
+    resultsEl.classList.remove("muted");
+    resultsEl.textContent = 'Could not load americas.svg. Make sure it is in the repo root.';
+  }
+}
+
+// ---------- Buttons ----------
+startBtn.addEventListener("click", () => {
+  // Prime/Unlock audio on user gesture
+  if ("speechSynthesis" in window) {
+    pickVoice();
+    window.speechSynthesis.cancel();
+  }
+  ensureAudio();
+
+  order = shuffle(COUNTRIES.map(c => c.id));
+  index = 0;
+  score = 0;
+  completed.clear();
+  firstClickUsed = false;
+
+  resultsEl.classList.add("muted");
+  resultsEl.textContent = "Quiz running…";
+  startBtn.disabled = true;
+  restartBtn.disabled = false;
+
+  startTime = performance.now();
+  running = true;
+  tick();
+
+  setProgress();
+  nextPrompt();
+});
+
+restartBtn.addEventListener("click", () => {
+  stopTimer();
+  resetUI();
+});
+
+// Init
+resetUI();
+loadSVG();
