@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Americas Map Quiz</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="left">
+          <h1>Americas Map Quiz</h1>
+          <div class="meta">
+            <span id="progress">0 / 0</span>
+            <span class="dot">•</span>
+            <span id="timer">0.0s</span>
+          </div>
+        </div>
+
+        <div class="center">
+          <div class="prompt-label">Click:</div>
+          <div id="prompt" class="prompt">—</div>
+          <div id="subprompt" class="subprompt"></div>
+        </div>
+
+        <div class="right">
+          <button id="startBtn">Start</button>
+          <button id="restartBtn" class="secondary" disabled>Restart</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="map-wrap">
+          <div id="mapStatus" class="map-status">Loading map…</div>
+          <div id="mapContainer" class="map-container"></div>
+        </section>
+
+        <aside class="panel">
+          <h2>Results</h2>
+          <div id="results" class="results muted">Press Start to begin.</div>
+
+          <hr />
+
+          <h3>Rules</h3>
+          <ul class="rules">
+            <li>Order is randomized each run.</li>
+            <li>Timer starts on Start.</li>
+            <li>Wrong clicks don’t advance you.</li>
+            <li>You must click the correct country to move on.</li>
+          </ul>
+        </aside>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
