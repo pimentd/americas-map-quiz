@@ -1,25 +1,11 @@
-// app.js — FULL FILE (for your current index.html)
-//
-// Works with these IDs in your index.html:
-// #mapContainer, #mapStatus, #prompt, #subprompt, #timer, #progress, #results,
-// #startBtn, #restartBtn, #modebar (buttons with data-mode)
-//
-// Features:
-// - Region modes: all / caribbean / central / south
-// - Randomized order, timed
-// - Correct turns green, wrong flashes red (longer)
-// - Wrong-click beep
-// - Speaks the country name (Chrome/Mac tuned + retry)
-// - End modal already in your HTML/CSS is used (percent + time + perfect confetti + fanfare)
-// - Zoom per region that ACTUALLY works with your SVG structure (screenCTM -> inverse)
+// app.js — FULL FILE (your current layout IDs)
 
+// ---------------- Data ----------------
 const COUNTRIES = [
-  // North America (included in "all")
   { id: "ca", name: "Canada", region: "north" },
   { id: "us", name: "United States", region: "north" },
   { id: "mx", name: "Mexico", region: "north" },
 
-  // Central America
   { id: "bz", name: "Belize", region: "central" },
   { id: "gt", name: "Guatemala", region: "central" },
   { id: "hn", name: "Honduras", region: "central" },
@@ -28,7 +14,6 @@ const COUNTRIES = [
   { id: "cr", name: "Costa Rica", region: "central" },
   { id: "pa", name: "Panama", region: "central" },
 
-  // South America
   { id: "co", name: "Colombia", region: "south" },
   { id: "ve", name: "Venezuela", region: "south" },
   { id: "gy", name: "Guyana", region: "south" },
@@ -42,7 +27,6 @@ const COUNTRIES = [
   { id: "ar", name: "Argentina", region: "south" },
   { id: "uy", name: "Uruguay", region: "south" },
 
-  // Caribbean (larger / commonly assessed)
   { id: "bs", name: "Bahamas", region: "caribbean" },
   { id: "cu", name: "Cuba", region: "caribbean" },
   { id: "jm", name: "Jamaica", region: "caribbean" },
@@ -50,19 +34,13 @@ const COUNTRIES = [
   { id: "do", name: "Dominican Republic", region: "caribbean" },
   { id: "tt", name: "Trinidad and Tobago", region: "caribbean" },
 
-  // Territories
   { id: "pr", name: "Puerto Rico (USA)", region: "caribbean" },
   { id: "gf", name: "French Guiana (France)", region: "south" }
 ];
 
-// Small islands that exist in some SVGs; if present we gray them + disable clicks
 const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
 
-// Optional pronunciation tweaks
-const PRONUNCIATION = {
-  // bs: "The Bahamas",
-  // us: "United States of America",
-};
+const PRONUNCIATION = {};
 
 // ---------------- DOM ----------------
 const mapContainer = document.getElementById("mapContainer");
@@ -71,11 +49,11 @@ const promptEl = document.getElementById("prompt");
 const subpromptEl = document.getElementById("subprompt");
 const timerEl = document.getElementById("timer");
 const progressEl = document.getElementById("progress");
+const percentEl = document.getElementById("percent");
 const resultsEl = document.getElementById("results");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 
-// End modal
 const endModal = document.getElementById("endModal");
 const closeModalBtn = document.getElementById("closeModalBtn");
 const finalPercentEl = document.getElementById("finalPercent");
@@ -83,7 +61,6 @@ const finalTimeEl = document.getElementById("finalTime");
 const perfectBox = document.getElementById("perfectBox");
 const confettiCanvas = document.getElementById("confettiCanvas");
 
-// Mode buttons (data-mode)
 const modebar = document.getElementById("modebar");
 const modeButtons = modebar ? Array.from(modebar.querySelectorAll(".modebtn")) : [];
 
@@ -108,18 +85,14 @@ let firstClickUsed = false;
 const countryEls = new Map();
 const byId = new Map(COUNTRIES.map(c => [c.id, c]));
 
-// ---------------- Utilities ----------------
+// ---------------- Helpers ----------------
 function setStatus(text) {
   mapStatus.textContent = text;
 }
 
 function setPrompt(country) {
   promptEl.textContent = country ? country.name : "—";
-  if (subpromptEl) subpromptEl.textContent = country ? "" : "";
-}
-
-function setProgress() {
-  progressEl.textContent = `${Math.min(index, activeCountries.length)} / ${activeCountries.length}`;
+  if (subpromptEl) subpromptEl.textContent = "";
 }
 
 function shuffle(arr) {
@@ -136,6 +109,25 @@ function getActiveCountries() {
   return COUNTRIES.filter(c => c.region === currentMode);
 }
 
+function setProgressAndPercent() {
+  const total = activeCountries.length || 0;
+  progressEl.textContent = `${Math.min(index, total)} / ${total}`;
+  const pct = total ? (score / total) * 100 : 0;
+  if (percentEl) percentEl.textContent = `${Math.round(pct)}%`;
+}
+
+function tick() {
+  if (!running) return;
+  timerEl.textContent = `${((performance.now() - startTime) / 1000).toFixed(1)}s`;
+  rafId = requestAnimationFrame(tick);
+}
+
+function stopTimer() {
+  running = false;
+  cancelAnimationFrame(rafId);
+}
+
+// SVG targeting
 function getPaintTargets(rootEl) {
   if (!rootEl) return [];
   const tag = (rootEl.tagName || "").toLowerCase();
@@ -167,26 +159,11 @@ function resetClasses() {
   }
 }
 
-// ---------------- Timer ----------------
-function tick() {
-  if (!running) return;
-  timerEl.textContent = `${((performance.now() - startTime) / 1000).toFixed(1)}s`;
-  rafId = requestAnimationFrame(tick);
-}
-
-function stopTimer() {
-  running = false;
-  cancelAnimationFrame(rafId);
-}
-
-// ---------------- Wrong/correct visuals ----------------
 function markWrong(id) {
   addClassToTargets(id, "wrong");
-  setTimeout(() => removeClassToTargetsSafe(id, "wrong"), 1000);
+  setTimeout(() => removeClassFromTargets(id, "wrong"), 1000);
 }
-function removeClassToTargetsSafe(id, className) {
-  try { removeClassFromTargets(id, className); } catch (_) {}
-}
+
 function markCorrect(id) {
   addClassToTargets(id, "correct");
   addClassToTargets(id, "locked");
@@ -343,7 +320,7 @@ function closeEndModal() {
   stopConfetti();
 }
 
-// ---------------- Speech (Chrome/Mac reliability) ----------------
+// ---------------- Speech ----------------
 let selectedVoice = null;
 
 function pickVoice() {
@@ -364,9 +341,10 @@ function pickVoice() {
     if (v) { selectedVoice = v; return; }
   }
 
-  selectedVoice = voices.find(v => (v.lang || "").toLowerCase() === "en-us")
-    || voices.find(isEnglish)
-    || voices[0];
+  selectedVoice =
+    voices.find(v => (v.lang || "").toLowerCase() === "en-us") ||
+    voices.find(isEnglish) ||
+    voices[0];
 }
 
 if ("speechSynthesis" in window) {
@@ -378,14 +356,11 @@ function speak(text) {
   if (!("speechSynthesis" in window)) return;
   const synth = window.speechSynthesis;
 
-  // Cancel anything queued to reduce missed utterances
   if (synth.speaking || synth.pending) synth.cancel();
 
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "en-US";
   if (selectedVoice) u.voice = selectedVoice;
-
-  // less robotic
   u.rate = 0.95;
   u.pitch = 1.05;
   u.volume = 1.0;
@@ -393,10 +368,8 @@ function speak(text) {
   let started = false;
   u.onstart = () => { started = true; };
 
-  // slight delay helps on Chrome
   setTimeout(() => { try { synth.speak(u); } catch (_) {} }, 40);
 
-  // retry once if it didn't start
   setTimeout(() => {
     if (!started && !synth.speaking) {
       try {
@@ -413,9 +386,7 @@ function speak(text) {
   }, 220);
 }
 
-// ---------------- Zoom (ROBUST) ----------------
-// Convert an element's bbox into SVG viewBox coordinate space using:
-// element.getBBox() corners -> element.getScreenCTM() -> svg.getScreenCTM().inverse()
+// ---------------- Zoom (robust) ----------------
 function getBBoxInSvgViewBoxCoords(el) {
   if (!svgEl || !el || typeof el.getBBox !== "function") return null;
 
@@ -429,11 +400,9 @@ function getBBoxInSvgViewBoxCoords(el) {
   let invSvg;
   try { invSvg = svgM.inverse(); } catch { return null; }
 
-  // Helper: transform point local->screen (elemM), then screen->svg (invSvg)
   const toSvgPt = (x, y) => {
     const sx = elemM.a * x + elemM.c * y + elemM.e;
     const sy = elemM.b * x + elemM.d * y + elemM.f;
-
     const vx = invSvg.a * sx + invSvg.c * sy + invSvg.e;
     const vy = invSvg.b * sx + invSvg.d * sy + invSvg.f;
     return { x: vx, y: vy };
@@ -485,17 +454,14 @@ function zoomToActiveCountries() {
     return;
   }
 
-  // Compute union bbox for all active countries
   let bbox = null;
 
   for (const c of activeCountries) {
     const entry = countryEls.get(c.id);
     if (!entry) continue;
 
-    // Try root first
     let b = getBBoxInSvgViewBoxCoords(entry.rootEl);
 
-    // If root fails, try paint elements
     if (!b) {
       for (const pe of entry.paintEls) {
         b = getBBoxInSvgViewBoxCoords(pe);
@@ -506,13 +472,11 @@ function zoomToActiveCountries() {
     if (b && b.w > 0 && b.h > 0) bbox = unionBBox(bbox, b);
   }
 
-  // If bbox couldn't be computed, just fall back to original viewBox
   if (!bbox || !Number.isFinite(bbox.w) || !Number.isFinite(bbox.h) || bbox.w <= 0 || bbox.h <= 0) {
     restoreViewBox();
     return;
   }
 
-  // Padding (Caribbean needs smaller padding to feel zoomed)
   const padPct =
     currentMode === "caribbean" ? 0.06 :
     currentMode === "central" ? 0.08 :
@@ -529,7 +493,6 @@ function zoomToActiveCountries() {
   });
 }
 
-// Apply zoom after paint (important for stable CTM/bbox)
 function zoomNextFrame() {
   requestAnimationFrame(() => requestAnimationFrame(zoomToActiveCountries));
 }
@@ -557,6 +520,7 @@ function nextPrompt() {
       perfect
     });
 
+    setProgressAndPercent();
     return;
   }
 
@@ -582,7 +546,7 @@ function handleCountryClick(id) {
     markCorrect(id);
 
     index++;
-    setProgress();
+    setProgressAndPercent();
     nextPrompt();
   } else {
     if (!firstClickUsed) firstClickUsed = true;
@@ -601,7 +565,6 @@ function setMode(mode) {
 
   modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
 
-  // Reset UI bits
   completed.clear();
   score = 0;
   index = 0;
@@ -612,10 +575,10 @@ function setMode(mode) {
 
   setPrompt(null);
   setStatus("Ready.");
-  setProgress();
   resetClasses();
   closeEndModal();
 
+  setProgressAndPercent();
   zoomNextFrame();
 }
 
@@ -635,17 +598,14 @@ async function loadSVG() {
     svgEl = mapContainer.querySelector("svg");
     if (!svgEl) throw new Error("No <svg> found in americas.svg");
 
-    // record original viewBox
     originalViewBox = svgEl.getAttribute("viewBox");
     if (!originalViewBox) {
-      // last-resort fallback
       const w = Number(svgEl.getAttribute("width")) || 2752.766;
       const h = Number(svgEl.getAttribute("height")) || 1537.631;
       originalViewBox = `0 0 ${w} ${h}`;
       svgEl.setAttribute("viewBox", originalViewBox);
     }
 
-    // Wire up countries
     for (const { id } of COUNTRIES) {
       const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
       if (!rootEl) continue;
@@ -665,7 +625,6 @@ async function loadSVG() {
       for (const el of paintEls) el.addEventListener("click", clickHandler);
     }
 
-    // Disable tiny islands (if present)
     for (const id of DISABLED_ISLANDS) {
       const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
       if (!rootEl) continue;
@@ -680,9 +639,9 @@ async function loadSVG() {
     activeCountries = getActiveCountries();
 
     setStatus("Map loaded.");
-    setProgress();
     setPrompt(null);
-
+    resetClasses();
+    setProgressAndPercent();
     zoomNextFrame();
   } catch (err) {
     console.error(err);
@@ -714,11 +673,11 @@ function resetUI() {
   setPrompt(null);
   setStatus("Ready.");
   activeCountries = getActiveCountries();
-  setProgress();
 
   resetClasses();
   closeEndModal();
 
+  setProgressAndPercent();
   zoomNextFrame();
 }
 
@@ -726,22 +685,11 @@ function resetUI() {
 startBtn.addEventListener("click", () => {
   ensureAudio();
   pickVoice();
-
-  // Warm up speech engine
-  try {
-    const warm = new SpeechSynthesisUtterance(" ");
-    warm.lang = "en-US";
-    warm.volume = 0;
-    window.speechSynthesis.speak(warm);
-    window.speechSynthesis.cancel();
-  } catch (_) {}
-
   closeEndModal();
 
   activeCountries = getActiveCountries();
   zoomNextFrame();
 
-  // IMPORTANT: only include countries that actually exist in the SVG
   const available = activeCountries.filter(c => countryEls.has(c.id));
   order = shuffle(available.map(c => c.id));
 
@@ -762,7 +710,7 @@ startBtn.addEventListener("click", () => {
   running = true;
   tick();
 
-  setProgress();
+  setProgressAndPercent();
   nextPrompt();
 });
 
