@@ -91,6 +91,43 @@ body {
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ---------- MODE TOGGLES ---------- */
+
+.modebar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.modebtn {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-weight: 750;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.modebtn:hover {
+  border-color: rgba(255, 255, 255, 0.30);
+}
+
+.modebtn.active {
+  background: rgba(122, 167, 255, 0.25);
+  border-color: rgba(122, 167, 255, 0.65);
+  box-shadow: 0 8px 26px rgba(122, 167, 255, 0.16);
+}
+
+.modebtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ---------- BUTTONS ---------- */
@@ -135,7 +172,7 @@ button.secondary {
 .map-wrap {
   border: 1px solid var(--stroke);
   border-radius: 18px;
-  background: #6fa3d9; /* ocean blue (also helps if SVG is transparent) */
+  background: #6fa3d9; /* fallback ocean blue */
   overflow: hidden;
   position: relative;
 }
@@ -195,6 +232,7 @@ button.secondary {
   opacity: 0.9;
 }
 
+/* Disabled tiny islands */
 .disabled-island {
   opacity: 0.35;
   cursor: default !important;
@@ -315,13 +353,8 @@ hr {
   text-shadow: 0 8px 28px rgba(0,0,0,0.45);
 }
 
-#finalPercent {
-  color: #ffffff;
-}
-
-#finalTime {
-  color: var(--accent);
-}
+#finalPercent { color: #ffffff; }
+#finalTime { color: var(--accent); }
 
 .perfect {
   margin-top: 18px;
@@ -347,15 +380,6 @@ hr {
   margin-top: 6px;
   font-weight: 800;
   font-size: 20px;
-}
-
-.modal-actions {
-  position: absolute;
-  bottom: 18px;
-  left: 18px;
-  right: 18px;
-  display: flex;
-  justify-content: center;
 }
 
 .confetti {
