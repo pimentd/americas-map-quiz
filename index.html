@@ -8,56 +8,62 @@
 </head>
 
 <body>
-  <div id="app">
-    <header class="topbar">
-      <div>
-        <h1>Americas Map Quiz</h1>
-        <div class="meta">
-          <span id="progress">0 / 0</span>
-          <span class="dot">•</span>
-          <span id="timer">0.0s</span>
-        </div>
+  <div id="app" class="layout">
+    <!-- LEFT RAIL: controls + prompt -->
+    <aside class="rail rail-left">
+      <div class="brand">
+        <div class="brand-title">Americas Map Quiz</div>
       </div>
 
-      <div>
+      <div class="modebar" id="modebar">
+        <button class="modebtn active" data-mode="all">All Americas</button>
+        <button class="modebtn" data-mode="caribbean">Caribbean</button>
+        <button class="modebtn" data-mode="central">Central America</button>
+        <button class="modebtn" data-mode="south">South America</button>
+      </div>
+
+      <div class="btnrow">
+        <button id="startBtn" class="primary">Start</button>
+        <button id="restartBtn" class="secondary" disabled>Restart</button>
+      </div>
+
+      <div class="prompt-block">
         <div class="prompt-label">CLICK:</div>
         <div id="prompt" class="prompt">—</div>
         <div id="subprompt" class="subprompt"></div>
       </div>
+    </aside>
 
-      <div class="right">
-        <div class="modebar" id="modebar">
-          <button class="modebtn active" data-mode="all">All Americas</button>
-          <button class="modebtn" data-mode="caribbean">Caribbean</button>
-          <button class="modebtn" data-mode="central">Central America</button>
-          <button class="modebtn" data-mode="south">South America</button>
+    <!-- MAP -->
+    <main class="map-area">
+      <div id="mapStatus" class="map-status">Loading map…</div>
+      <div id="mapContainer" class="map-container"></div>
+    </main>
+
+    <!-- RIGHT RAIL: stats -->
+    <aside class="rail rail-right">
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Time</div>
+          <div id="timer" class="stat-value">0.0s</div>
         </div>
 
-        <button id="startBtn">Start</button>
-        <button id="restartBtn" class="secondary" disabled>Restart</button>
+        <div class="stat">
+          <div class="stat-label">Percent</div>
+          <div id="percent" class="stat-value">0%</div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-label">Progress</div>
+          <div id="progress" class="stat-value">0 / 0</div>
+        </div>
       </div>
-    </header>
 
-    <main class="main">
-      <section class="map-wrap">
-        <div id="mapStatus" class="map-status">Loading map…</div>
-        <div id="mapContainer" class="map-container"></div>
-      </section>
-
-      <aside class="panel">
-        <h2>Results</h2>
+      <div class="mini-results">
+        <div class="mini-title">Results</div>
         <div id="results" class="results muted">Press Start to begin.</div>
-        <hr />
-        <h3>Rules</h3>
-        <ul class="rules">
-          <li>Choose a region mode (or All Americas).</li>
-          <li>Order is randomized each run.</li>
-          <li>Timer starts on Start.</li>
-          <li>Wrong clicks don't advance you.</li>
-          <li>You must click the correct country to move on.</li>
-        </ul>
-      </aside>
-    </main>
+      </div>
+    </aside>
   </div>
 
   <!-- END-OF-QUIZ MODAL -->
