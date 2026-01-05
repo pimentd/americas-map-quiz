@@ -5,9 +5,13 @@
 // - Timed quiz with randomized order
 // - Spoken country names (TTS)
 // - Error beep on wrong click
-// - Longer red flash on wrong click
+// - Longer red flash on wrong click (1s)
 // - Small Caribbean islands visible but disabled
 // - Includes Puerto Rico (USA) and French Guiana (France)
+//
+// IMPORTANT SVG NOTE:
+// Some places (e.g., Bahamas) are groups (<g>) containing multiple shapes.
+// We apply classes to the paintable shapes inside the group so colors change correctly.
 
 const COUNTRIES = [
   // North America
@@ -136,9 +140,11 @@ let rafId = 0;
 let score = 0;
 let firstClickUsed = false;
 
-const total = COUNTRIES.length;
 const byId = new Map(COUNTRIES.map(c => [c.id, c]));
 const completed = new Set();
+
+// Map from id -> { rootEl, paintEls[] }
+const countryEls = new Map();
 
 // ---------- HELPERS ----------
 function shuffle(arr) {
@@ -160,13 +166,52 @@ function stopTimer() {
   cancelAnimationFrame(rafId);
 }
 
+function getPaintTargets(rootEl) {
+  // If it's a group, style the shapes inside it.
+  if (!rootEl) return [];
+  const tag = rootEl.tagName ? rootEl.tagName.toLowerCase() : "";
+  if (tag === "g") {
+    const inner = rootEl.querySelectorAll(
+      "path, polygon, rect, circle, ellipse, polyline, line"
+    );
+    return inner.length ? Array.from(inner) : [rootEl];
+  }
+  return [rootEl];
+}
+
+function addClassToTargets(id, className) {
+  const entry = countryEls.get(id);
+  if (!entry) return;
+  for (const el of entry.paintEls) el.classList.add(className);
+}
+
+function removeClassFromTargets(id, className) {
+  const entry = countryEls.get(id);
+  if (!entry) return;
+  for (const el of entry.paintEls) el.classList.remove(className);
+}
+
+function resetClasses() {
+  for (const { id } of COUNTRIES) {
+    removeClassFromTargets(id, "wrong");
+    removeClassFromTargets(id, "correct");
+    removeClassFromTargets(id, "locked");
+    // Ensure baseline class exists
+    addClassToTargets(id, "country");
+  }
+}
+
 function nextPrompt() {
+  const total = COUNTRIES.length;
+
   if (index >= total) {
     stopTimer();
     promptEl.textContent = "—";
     mapStatus.textContent = "Finished.";
+
+    const pct = (score / total) * 100;
     resultsEl.innerHTML = `
-      <strong>Score:</strong> ${score} / ${total} (${((score / total) * 100).toFixed(1)}%)<br>
+      <strong>Score:</strong> ${score} / ${total} (${pct.toFixed(1)}%)<br>
       <strong>Time:</strong> ${timerEl.textContent}
     `;
     return;
@@ -179,59 +224,86 @@ function nextPrompt() {
   mapStatus.textContent = "Click the correct country on the map.";
 }
 
-function markWrong(el) {
-  el.classList.add("wrong");
-  setTimeout(() => el.classList.remove("wrong"), 1000);
+function markWrong(id) {
+  addClassToTargets(id, "wrong");
+  setTimeout(() => removeClassFromTargets(id, "wrong"), 1000);
 }
 
-function markCorrect(el) {
-  el.classList.add("correct", "locked");
+function markCorrect(id) {
+  addClassToTargets(id, "correct");
+  addClassToTargets(id, "locked");
 }
 
-// ---------- CLICK HANDLING ----------
-function handleCountryClick(id, el) {
-  if (!running || completed.has(id)) return;
+function handleCountryClick(id) {
+  if (!running) return;
+  if (completed.has(id)) return;
 
-  if (id === order[index]) {
+  const targetId = order[index];
+
+  if (id === targetId) {
     if (!firstClickUsed) score++;
     completed.add(id);
-    markCorrect(el);
+    markCorrect(id);
+
     index++;
-    progressEl.textContent = `${index} / ${total}`;
+    progressEl.textContent = `${index} / ${COUNTRIES.length}`;
     nextPrompt();
   } else {
-    firstClickUsed = true;
+    if (!firstClickUsed) firstClickUsed = true;
     playWrongBeep();
-    markWrong(el);
+    markWrong(id);
     mapStatus.textContent = "Nope — try again.";
   }
 }
 
 // ---------- LOAD SVG ----------
 async function loadSVG() {
-  const res = await fetch("americas.svg");
-  mapContainer.innerHTML = await res.text();
+  try {
+    const res = await fetch("americas.svg", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-  for (const { id } of COUNTRIES) {
-    const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
-    if (!el) continue;
-    el.classList.add("country");
-    el.addEventListener("click", e => {
-      e.preventDefault();
-      handleCountryClick(id, el);
-    });
-  }
+    mapContainer.innerHTML = await res.text();
 
-  for (const id of DISABLED_ISLANDS) {
-    const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
-    if (el) {
-      el.classList.add("disabled-island");
-      el.style.pointerEvents = "none";
+    // Build element map and attach listeners
+    for (const { id } of COUNTRIES) {
+      const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
+      if (!rootEl) continue;
+
+      const paintEls = getPaintTargets(rootEl);
+      countryEls.set(id, { rootEl, paintEls });
+
+      // Make them styleable
+      for (const el of paintEls) el.classList.add("country");
+
+      // Attach click to root AND paint elements (belt-and-suspenders)
+      const clickHandler = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleCountryClick(id);
+      };
+      rootEl.addEventListener("click", clickHandler);
+      for (const el of paintEls) el.addEventListener("click", clickHandler);
     }
-  }
 
-  progressEl.textContent = `0 / ${total}`;
-  mapStatus.textContent = "Map loaded.";
+    // Disable tiny islands (still visible)
+    for (const id of DISABLED_ISLANDS) {
+      const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
+      if (!rootEl) continue;
+
+      const paintEls = getPaintTargets(rootEl);
+      for (const el of paintEls) {
+        el.classList.add("disabled-island");
+        el.style.pointerEvents = "none";
+      }
+      rootEl.style.pointerEvents = "none";
+    }
+
+    progressEl.textContent = `0 / ${COUNTRIES.length}`;
+    mapStatus.textContent = "Map loaded.";
+  } catch (err) {
+    console.error(err);
+    mapStatus.textContent = "Failed to load americas.svg (check filename/location).";
+  }
 }
 
 // ---------- BUTTONS ----------
@@ -249,21 +321,31 @@ startBtn.addEventListener("click", () => {
   startBtn.disabled = true;
   restartBtn.disabled = false;
 
+  resetClasses();
+
   startTime = performance.now();
   running = true;
   tick();
 
-  progressEl.textContent = `0 / ${total}`;
+  progressEl.textContent = `0 / ${COUNTRIES.length}`;
   nextPrompt();
 });
 
 restartBtn.addEventListener("click", () => {
   stopTimer();
+  running = false;
+
   startBtn.disabled = false;
   restartBtn.disabled = true;
+
   resultsEl.textContent = "Press Start to begin.";
   promptEl.textContent = "—";
   mapStatus.textContent = "Ready.";
+
+  completed.clear();
+  resetClasses();
+  progressEl.textContent = `0 / ${COUNTRIES.length}`;
+  timerEl.textContent = "0.0s";
 });
 
 // Init
