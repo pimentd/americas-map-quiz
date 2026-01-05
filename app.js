@@ -8,10 +8,8 @@
 // - Longer red flash on wrong click (1s)
 // - Small Caribbean islands visible but disabled
 // - Includes Puerto Rico (USA) and French Guiana (France)
-//
-// IMPORTANT SVG NOTE:
-// Some places (e.g., Bahamas) are groups (<g>) containing multiple shapes.
-// We apply classes to the paintable shapes inside the group so colors change correctly.
+// - Fix for SVG groups (<g>) like Bahamas/Jamaica: apply classes to paintable child shapes
+// - Ocean blue via CSS on .map-wrap + JS that makes the SVG background transparent
 
 const COUNTRIES = [
   // North America
@@ -55,7 +53,7 @@ const COUNTRIES = [
   { id: "gf", name: "French Guiana (France)" }
 ];
 
-// Small Caribbean islands to show but disable
+// Small Caribbean islands to show but disable (still visible)
 const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
 
 // ---------- SPEECH (TEXT TO SPEECH) ----------
@@ -68,7 +66,7 @@ function pickVoice() {
   if (!voices.length) return;
 
   selectedVoice =
-    voices.find(v => /^en/i.test(v.lang) && /Google|Microsoft|Alex|Samantha/i.test(v.name)) ||
+    voices.find(v => /^en/i.test(v.lang) && /Google|Microsoft|Alex|Samantha|Daniel/i.test(v.name)) ||
     voices.find(v => /^en/i.test(v.lang)) ||
     voices[0];
 }
@@ -86,6 +84,8 @@ function speak(text) {
   const u = new SpeechSynthesisUtterance(text);
   if (selectedVoice) u.voice = selectedVoice;
   u.rate = 0.95;
+  u.pitch = 1.0;
+  u.volume = 1.0;
   window.speechSynthesis.speak(u);
 }
 
@@ -143,7 +143,7 @@ let firstClickUsed = false;
 const byId = new Map(COUNTRIES.map(c => [c.id, c]));
 const completed = new Set();
 
-// Map from id -> { rootEl, paintEls[] }
+// Map id -> { rootEl, paintEls[] }
 const countryEls = new Map();
 
 // ---------- HELPERS ----------
@@ -167,15 +167,15 @@ function stopTimer() {
 }
 
 function getPaintTargets(rootEl) {
-  // If it's a group, style the shapes inside it.
   if (!rootEl) return [];
-  const tag = rootEl.tagName ? rootEl.tagName.toLowerCase() : "";
+  const tag = (rootEl.tagName || "").toLowerCase();
+
+  // If it's a group, style the shapes inside it.
   if (tag === "g") {
-    const inner = rootEl.querySelectorAll(
-      "path, polygon, rect, circle, ellipse, polyline, line"
-    );
+    const inner = rootEl.querySelectorAll("path, polygon, rect, circle, ellipse, polyline, line");
     return inner.length ? Array.from(inner) : [rootEl];
   }
+
   return [rootEl];
 }
 
@@ -196,11 +196,47 @@ function resetClasses() {
     removeClassFromTargets(id, "wrong");
     removeClassFromTargets(id, "correct");
     removeClassFromTargets(id, "locked");
-    // Ensure baseline class exists
     addClassToTargets(id, "country");
   }
 }
 
+// ---------- OCEAN TRANSPARENCY FIX ----------
+function makeSvgOceanTransparent(svg) {
+  // Remove/neutralize big white background rectangles that cover the whole canvas
+  const rects = svg.querySelectorAll("rect");
+  let changed = 0;
+
+  rects.forEach(r => {
+    const fill = (r.getAttribute("fill") || "").trim().toLowerCase();
+    const w = parseFloat(r.getAttribute("width") || "0");
+    const h = parseFloat(r.getAttribute("height") || "0");
+
+    // Heuristic: huge rect + white/none fill = likely background
+    const isWhiteish =
+      fill === "#fff" || fill === "#ffffff" || fill === "white" || fill === "" || fill === "none";
+
+    if (isWhiteish && (w >= 900 || h >= 500)) {
+      r.setAttribute("fill", "transparent");
+      r.style.fill = "transparent";
+      changed++;
+    }
+  });
+
+  // If no big rect found, sometimes the background is a <path>.
+  if (changed === 0) {
+    const paths = svg.querySelectorAll("path");
+    paths.forEach(p => {
+      const fill = (p.getAttribute("fill") || "").trim().toLowerCase();
+      const isWhiteish = fill === "#fff" || fill === "#ffffff" || fill === "white";
+      if (isWhiteish) {
+        p.setAttribute("fill", "transparent");
+        p.style.fill = "transparent";
+      }
+    });
+  }
+}
+
+// ---------- QUIZ FLOW ----------
 function nextPrompt() {
   const total = COUNTRIES.length;
 
@@ -242,6 +278,7 @@ function handleCountryClick(id) {
 
   if (id === targetId) {
     if (!firstClickUsed) score++;
+
     completed.add(id);
     markCorrect(id);
 
@@ -250,6 +287,7 @@ function handleCountryClick(id) {
     nextPrompt();
   } else {
     if (!firstClickUsed) firstClickUsed = true;
+
     playWrongBeep();
     markWrong(id);
     mapStatus.textContent = "Nope — try again.";
@@ -259,10 +297,14 @@ function handleCountryClick(id) {
 // ---------- LOAD SVG ----------
 async function loadSVG() {
   try {
+    mapStatus.textContent = "Loading map…";
     const res = await fetch("americas.svg", { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     mapContainer.innerHTML = await res.text();
+
+    const svg = mapContainer.querySelector("svg");
+    if (svg) makeSvgOceanTransparent(svg);
 
     // Build element map and attach listeners
     for (const { id } of COUNTRIES) {
@@ -272,15 +314,16 @@ async function loadSVG() {
       const paintEls = getPaintTargets(rootEl);
       countryEls.set(id, { rootEl, paintEls });
 
-      // Make them styleable
+      // Ensure baseline class for styling
       for (const el of paintEls) el.classList.add("country");
 
-      // Attach click to root AND paint elements (belt-and-suspenders)
       const clickHandler = (e) => {
         e.preventDefault();
         e.stopPropagation();
         handleCountryClick(id);
       };
+
+      // Attach click to root AND paint elements
       rootEl.addEventListener("click", clickHandler);
       for (const el of paintEls) el.addEventListener("click", clickHandler);
     }
@@ -334,6 +377,9 @@ startBtn.addEventListener("click", () => {
 restartBtn.addEventListener("click", () => {
   stopTimer();
   running = false;
+
+  // Stop any queued speech
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 
   startBtn.disabled = false;
   restartBtn.disabled = true;
