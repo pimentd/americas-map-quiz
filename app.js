@@ -1,9 +1,19 @@
 // Americas Map Quiz (GitHub Pages)
 // Uses americas.svg in repo root
 //
-// Adds region practice toggles + automatic zoom to selected region.
-// Keeps: timed, randomized, click map, wrong beep + red flash, end modal, perfect confetti+fanfare,
-// TTS tuned for Chrome on Mac.
+// Region practice toggles + automatic zoom to selected region.
+// Features:
+// - Timed quiz with randomized order
+// - Spoken country names (TTS) tuned for Chrome on Mac
+// - Error beep on wrong click + longer red flash (1s)
+// - Small Caribbean islands visible but disabled
+// - Includes Puerto Rico (USA) and French Guiana (France)
+// - Fix for SVG groups (<g>) like Bahamas/Jamaica: apply classes to paintable child shapes
+// - End-of-quiz giant modal with percent/time
+// - If 100%: fireworks emoji + confetti + WebAudio fanfare
+//
+// Zoom fix:
+// - Uses getBBox + getCTM corner transforms to compute bbox in SVG coordinate space (reliable)
 
 const COUNTRIES = [
   // North America (included only in "All Americas" mode)
@@ -34,7 +44,7 @@ const COUNTRIES = [
   { id: "ar", name: "Argentina", region: "south" },
   { id: "uy", name: "Uruguay", region: "south" },
 
-  // Caribbean
+  // Caribbean (larger/common)
   { id: "bs", name: "Bahamas", region: "caribbean" },
   { id: "cu", name: "Cuba", region: "caribbean" },
   { id: "jm", name: "Jamaica", region: "caribbean" },
@@ -52,7 +62,6 @@ const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
 
 // ---------- Region Mode ----------
 let currentMode = "all"; // all | caribbean | central | south
-
 function getActiveCountries() {
   if (currentMode === "all") return COUNTRIES;
   return COUNTRIES.filter(c => c.region === currentMode);
@@ -128,6 +137,7 @@ function speak(text) {
 
   setTimeout(() => { try { synth.speak(u); } catch (_) {} }, 50);
 
+  // Retry once if it didn't start (Mac Chrome sometimes drops)
   setTimeout(() => {
     if (!started && !synth.speaking) {
       try {
@@ -331,21 +341,76 @@ function unionBBox(a, b) {
   return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
 }
 
+// Transform a point using an SVGMatrix
+function transformPoint(x, y, m) {
+  return {
+    x: m.a * x + m.c * y + m.e,
+    y: m.b * x + m.d * y + m.f
+  };
+}
+
+// Compute element bbox in SVG coordinate system using getBBox + getCTM corner transforms
+function getBBoxInSvgCoords(el) {
+  if (!el || typeof el.getBBox !== "function") return null;
+
+  let bb;
+  try {
+    bb = el.getBBox();
+  } catch (_) {
+    return null;
+  }
+
+  const ctm = el.getCTM?.();
+  if (!ctm) {
+    // If no CTM, assume bbox is already in SVG coords (best effort)
+    return { x: bb.x, y: bb.y, w: bb.width, h: bb.height };
+  }
+
+  const p1 = transformPoint(bb.x, bb.y, ctm);
+  const p2 = transformPoint(bb.x + bb.width, bb.y, ctm);
+  const p3 = transformPoint(bb.x, bb.y + bb.height, ctm);
+  const p4 = transformPoint(bb.x + bb.width, bb.y + bb.height, ctm);
+
+  const xs = [p1.x, p2.x, p3.x, p4.x];
+  const ys = [p1.y, p2.y, p3.y, p4.y];
+
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  if (![minX, maxX, minY, maxY].every(Number.isFinite)) return null;
+
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
 function zoomToIds(ids, paddingPct = 0.10) {
   if (!svgEl) return;
+
   let bbox = null;
 
   for (const id of ids) {
     const entry = countryEls.get(id);
-    if (!entry || !entry.rootEl || typeof entry.rootEl.getBBox !== "function") continue;
+    if (!entry) continue;
 
-    try {
-      const b = entry.rootEl.getBBox();
-      bbox = unionBBox(bbox, { x: b.x, y: b.y, w: b.width, h: b.height });
-    } catch (_) {}
+    // Prefer root bbox; if it fails, try paint elements
+    let b = getBBoxInSvgCoords(entry.rootEl);
+    if (!b) {
+      for (const pe of entry.paintEls) {
+        b = getBBoxInSvgCoords(pe);
+        if (b) break;
+      }
+    }
+    if (!b) continue;
+
+    bbox = unionBBox(bbox, b);
   }
 
-  if (!bbox) return;
+  // If bbox looks invalid, bail out to original viewBox
+  if (!bbox || !Number.isFinite(bbox.w) || !Number.isFinite(bbox.h) || bbox.w <= 0 || bbox.h <= 0) {
+    restoreViewBox();
+    return;
+  }
 
   const padX = bbox.w * paddingPct;
   const padY = bbox.h * paddingPct;
@@ -367,7 +432,23 @@ function applyRegionZoom() {
   }
 
   const ids = activeCountries.map(c => c.id);
-  zoomToIds(ids, 0.12);
+
+  // Different padding per mode (Caribbean needs less padding to feel zoomed in)
+  const pad =
+    currentMode === "caribbean" ? 0.06 :
+    currentMode === "central" ? 0.08 :
+    0.10;
+
+  zoomToIds(ids, pad);
+}
+
+// Apply zoom AFTER the browser has painted the SVG (important for stable bbox)
+function applyRegionZoomNextFrame() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      applyRegionZoom();
+    });
+  });
 }
 
 // ---------- State ----------
@@ -551,20 +632,21 @@ function setMode(mode) {
 
   modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
 
-  // Reset UI bits
   completed.clear();
   score = 0;
   index = 0;
+
   timerEl.textContent = "0.0s";
   resultsEl.classList.add("muted");
   resultsEl.textContent = "Press Start to begin.";
+
   setPrompt(null);
   setStatus("Ready.");
   setProgress();
   resetClasses();
   closeEndModal();
 
-  applyRegionZoom();
+  applyRegionZoomNextFrame();
 }
 
 modeButtons.forEach(btn => {
@@ -598,6 +680,7 @@ async function loadSVG() {
 
       const paintEls = getPaintTargets(rootEl);
       countryEls.set(id, { rootEl, paintEls });
+
       for (const el of paintEls) el.classList.add("country");
 
       const clickHandler = (e) => {
@@ -627,8 +710,7 @@ async function loadSVG() {
     setProgress();
     setPrompt(null);
 
-    // Apply zoom for current mode after load
-    applyRegionZoom();
+    applyRegionZoomNextFrame();
   } catch (err) {
     console.error(err);
     setStatus('Failed to load "americas.svg"');
@@ -663,7 +745,7 @@ function resetUI() {
   resetClasses();
   closeEndModal();
 
-  applyRegionZoom();
+  applyRegionZoomNextFrame();
 }
 
 // ---------- Buttons ----------
@@ -671,7 +753,7 @@ startBtn.addEventListener("click", () => {
   ensureAudio();
   pickVoice();
 
-  // Warm up speech engine
+  // Warm up speech engine (helps reliability)
   try {
     const warm = new SpeechSynthesisUtterance(" ");
     warm.lang = "en-US";
@@ -683,7 +765,7 @@ startBtn.addEventListener("click", () => {
   closeEndModal();
 
   activeCountries = getActiveCountries();
-  applyRegionZoom();
+  applyRegionZoomNextFrame();
 
   order = shuffle(activeCountries.map(c => c.id));
 
