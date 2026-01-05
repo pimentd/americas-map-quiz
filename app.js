@@ -110,9 +110,8 @@ if ("speechSynthesis" in window) {
   window.speechSynthesis.onvoiceschanged = () => pickVoice();
 }
 
-// Pronunciation overrides (optional, but helps a couple names sound nicer)
+// Pronunciation overrides (optional)
 const PRONUNCIATION = {
-  // Example: you can add more later if desired
   // "bs": "The Bahamas",
   // "us": "United States of America",
 };
@@ -134,12 +133,12 @@ function speak(text) {
 
   const synth = window.speechSynthesis;
 
-  // Cancel only if currently speaking/queued (less aggressive than always cancel)
+  // Cancel only if currently speaking/queued
   if (synth.speaking || synth.pending) synth.cancel();
 
   const u = new SpeechSynthesisUtterance(text);
 
-  // Helps Chrome/macOS use the intended voice/cadence
+  // Helps Chrome/macOS use intended voice/cadence
   u.lang = "en-US";
 
   if (selectedVoice) u.voice = selectedVoice;
@@ -152,7 +151,7 @@ function speak(text) {
   let started = false;
   u.onstart = () => { started = true; };
 
-  // Tiny delay makes it sound less rushed and avoids clipped first syllables
+  // Tiny delay avoids clipped first syllables + feels less rushed
   setTimeout(() => {
     try {
       synth.speak(u);
@@ -328,7 +327,7 @@ const resultsEl = document.getElementById("results");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 
-// End modal (optional elements; code won’t crash if you removed some)
+// End modal
 const endModal = document.getElementById("endModal");
 const closeModalBtn = document.getElementById("closeModalBtn");
 const modalRestartBtn = document.getElementById("modalRestartBtn");
@@ -388,15 +387,10 @@ function addClassToTargets(id, className) {
   for (const el of entry.paintEls) el.classList.add(className);
 }
 
-function removeClassToTargets(id, className) {
+function removeClassFromTargets(id, className) {
   const entry = countryEls.get(id);
   if (!entry) return;
   for (const el of entry.paintEls) el.classList.remove(className);
-}
-
-// Backward-compatible alias (in case you were using this name elsewhere)
-function removeClassFromTargets(id, className) {
-  removeClassToTargets(id, className);
 }
 
 function resetClasses() {
@@ -489,7 +483,6 @@ function nextPrompt() {
   const country = byId.get(order[index]);
   setPrompt(country);
 
-  // Speak the country name (use pronunciation override if present)
   const spoken = PRONUNCIATION[country.id] || country.name;
   speak(spoken);
 
@@ -579,7 +572,6 @@ function resetUI() {
   stopTimer();
   running = false;
 
-  // Stop any queued speech
   if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 
   score = 0;
@@ -593,8 +585,8 @@ function resetUI() {
   }
   if (timerEl) timerEl.textContent = "0.0s";
 
-  if (startBtn) startBtn.disabled = false;
-  if (restartBtn) restartBtn.disabled = true;
+  startBtn.disabled = false;
+  restartBtn.disabled = true;
 
   setPrompt(null);
   setStatus("Ready.");
@@ -605,16 +597,16 @@ function resetUI() {
 }
 
 // ---------- Buttons ----------
-startBtn?.addEventListener("click", () => {
+startBtn.addEventListener("click", () => {
   // Prime/unlock audio on user gesture
   ensureAudio();
   pickVoice();
 
-  // Warm up the speech engine (reduces occasional drops)
+  // Warm up speech engine (reduces occasional drops)
   try {
     const warm = new SpeechSynthesisUtterance(" ");
     warm.lang = "en-US";
-    warm.volume = 0; // silent
+    warm.volume = 0;
     window.speechSynthesis.speak(warm);
     window.speechSynthesis.cancel();
   } catch (_) {}
@@ -632,7 +624,7 @@ startBtn?.addEventListener("click", () => {
     resultsEl.textContent = "Quiz running…";
   }
   startBtn.disabled = true;
-  if (restartBtn) restartBtn.disabled = false;
+  restartBtn.disabled = false;
 
   resetClasses();
 
@@ -644,14 +636,12 @@ startBtn?.addEventListener("click", () => {
   nextPrompt();
 });
 
-restartBtn?.addEventListener("click", resetUI);
+restartBtn.addEventListener("click", resetUI);
 modalRestartBtn?.addEventListener("click", () => {
   closeEndModal();
   resetUI();
 });
 closeModalBtn?.addEventListener("click", closeEndModal);
-
-// Close modal if user clicks backdrop
 endModal?.addEventListener("click", (e) => {
   if (e.target.classList && e.target.classList.contains("modal-backdrop")) closeEndModal();
 });
