@@ -13,7 +13,7 @@
       <div>
         <h1>Americas Map Quiz</h1>
         <div class="meta">
-          <span id="progress">0 / 30</span>
+          <span id="progress">0 / 0</span>
           <span class="dot">•</span>
           <span id="timer">0.0s</span>
         </div>
@@ -26,6 +26,13 @@
       </div>
 
       <div class="right">
+        <div class="modebar" id="modebar">
+          <button class="modebtn active" data-mode="all">All Americas</button>
+          <button class="modebtn" data-mode="caribbean">Caribbean</button>
+          <button class="modebtn" data-mode="central">Central America</button>
+          <button class="modebtn" data-mode="south">South America</button>
+        </div>
+
         <button id="startBtn">Start</button>
         <button id="restartBtn" class="secondary" disabled>Restart</button>
       </div>
@@ -43,6 +50,7 @@
         <hr />
         <h3>Rules</h3>
         <ul class="rules">
+          <li>Choose a region mode (or All Americas).</li>
           <li>Order is randomized each run.</li>
           <li>Timer starts on Start.</li>
           <li>Wrong clicks don't advance you.</li>
@@ -78,11 +86,7 @@
           <div class="perfect-text">Perfect score!</div>
         </div>
 
-        <canvas id="confettiCanvas" class="confetti" width="1200" height="700"></canvas>
-
-        <div class="modal-actions">
-          <button id="modalRestartBtn">Play Again</button>
-        </div>
+        <canvas id="confettiCanvas" class="confetti"></canvas>
       </div>
     </div>
   </div>
