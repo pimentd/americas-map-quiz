@@ -1,15 +1,8 @@
 // Americas Map Quiz (GitHub Pages)
-// Uses americas.svg (BlankMap-Americas.svg renamed to americas.svg)
+// Uses americas.svg in repo root
 //
-// Features:
-// - Timed quiz with randomized order
-// - Spoken country names (TTS)
-// - Error beep on wrong click
-// - Longer red flash on wrong click (1s)
-// - Small Caribbean islands visible but disabled
-// - Includes Puerto Rico (USA) and French Guiana (France)
-// - Fix for SVG groups (<g>) like Bahamas/Jamaica: apply classes to paintable child shapes
-// - Ocean blue via CSS on .map-wrap + JS that makes the SVG background transparent
+// End-of-quiz giant modal with percent/time.
+// If 100%: fireworks + confetti animation + simple WebAudio fanfare.
 
 const COUNTRIES = [
   // North America
@@ -40,7 +33,7 @@ const COUNTRIES = [
   { id: "ar", name: "Argentina" },
   { id: "uy", name: "Uruguay" },
 
-  // Caribbean (larger / commonly assessed)
+  // Caribbean
   { id: "bs", name: "Bahamas" },
   { id: "cu", name: "Cuba" },
   { id: "jm", name: "Jamaica" },
@@ -53,10 +46,9 @@ const COUNTRIES = [
   { id: "gf", name: "French Guiana (France)" }
 ];
 
-// Small Caribbean islands to show but disable (still visible)
 const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
 
-// ---------- SPEECH (TEXT TO SPEECH) ----------
+// ---------- Speech (TTS) ----------
 let speechEnabled = true;
 let selectedVoice = null;
 
@@ -89,7 +81,7 @@ function speak(text) {
   window.speechSynthesis.speak(u);
 }
 
-// ---------- SOUND EFFECTS ----------
+// ---------- Audio (SFX + Fanfare) ----------
 let audioCtx = null;
 
 function ensureAudio() {
@@ -121,17 +113,140 @@ function playWrongBeep() {
   osc.stop(t + 0.18);
 }
 
+function playFanfare() {
+  ensureAudio();
+  if (!audioCtx) return;
+
+  const t0 = audioCtx.currentTime + 0.02;
+
+  // Helper: play one note
+  function note(freq, start, dur, type = "triangle", vol = 0.20) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, start);
+
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(vol, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(start);
+    osc.stop(start + dur + 0.02);
+  }
+
+  // Simple triumphant arpeggio in C major (C E G C) + chord hit
+  const C4 = 261.63, E4 = 329.63, G4 = 392.00, C5 = 523.25;
+  const C3 = 130.81, G3 = 196.00, E3 = 164.81;
+
+  note(C4, t0 + 0.00, 0.20, "triangle", 0.22);
+  note(E4, t0 + 0.18, 0.20, "triangle", 0.22);
+  note(G4, t0 + 0.36, 0.22, "triangle", 0.22);
+  note(C5, t0 + 0.56, 0.28, "triangle", 0.24);
+
+  // Final chord “hit”
+  note(C3, t0 + 0.92, 0.55, "sine", 0.18);
+  note(E3, t0 + 0.92, 0.55, "sine", 0.16);
+  note(G3, t0 + 0.92, 0.55, "sine", 0.16);
+  note(C4, t0 + 0.92, 0.55, "triangle", 0.12);
+}
+
+// ---------- Confetti (Canvas) ----------
+let confettiRAF = 0;
+let confettiActive = false;
+
+function stopConfetti() {
+  confettiActive = false;
+  cancelAnimationFrame(confettiRAF);
+  confettiRAF = 0;
+}
+
+function startConfetti(canvas) {
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+  }
+  resize();
+
+  const colors = ["#ffffff", "#7aa7ff", "#35d07f", "#ff5c75", "#f7d154"];
+  const N = 180;
+  const parts = Array.from({ length: N }, () => ({
+    x: Math.random() * canvas.width,
+    y: -Math.random() * canvas.height,
+    vx: (Math.random() - 0.5) * 1.3 * dpr,
+    vy: (2.0 + Math.random() * 3.6) * dpr,
+    r: (2 + Math.random() * 4) * dpr,
+    a: Math.random() * Math.PI * 2,
+    va: (Math.random() - 0.5) * 0.25,
+    c: colors[(Math.random() * colors.length) | 0],
+    wob: (Math.random() * 0.8 + 0.2) * dpr
+  }));
+
+  confettiActive = true;
+
+  function frame() {
+    if (!confettiActive) return;
+
+    // Keep sized to modal (if user resizes)
+    resize();
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (const p of parts) {
+      p.x += p.vx + Math.sin(p.a) * p.wob;
+      p.y += p.vy;
+      p.a += p.va;
+
+      if (p.y > canvas.height + 20 * dpr) {
+        p.y = -20 * dpr;
+        p.x = Math.random() * canvas.width;
+      }
+      if (p.x < -20 * dpr) p.x = canvas.width + 20 * dpr;
+      if (p.x > canvas.width + 20 * dpr) p.x = -20 * dpr;
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.a);
+      ctx.fillStyle = p.c;
+      ctx.globalAlpha = 0.95;
+      ctx.fillRect(-p.r, -p.r * 0.6, p.r * 2.2, p.r * 1.2);
+      ctx.restore();
+    }
+
+    confettiRAF = requestAnimationFrame(frame);
+  }
+
+  frame();
+}
+
 // ---------- DOM ----------
 const mapContainer = document.getElementById("mapContainer");
 const mapStatus = document.getElementById("mapStatus");
 const promptEl = document.getElementById("prompt");
+const subpromptEl = document.getElementById("subprompt");
 const timerEl = document.getElementById("timer");
 const progressEl = document.getElementById("progress");
 const resultsEl = document.getElementById("results");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 
-// ---------- STATE ----------
+// End modal
+const endModal = document.getElementById("endModal");
+const closeModalBtn = document.getElementById("closeModalBtn");
+const modalRestartBtn = document.getElementById("modalRestartBtn");
+const finalPercentEl = document.getElementById("finalPercent");
+const finalTimeEl = document.getElementById("finalTime");
+const perfectBox = document.getElementById("perfectBox");
+const confettiCanvas = document.getElementById("confettiCanvas");
+
+// ---------- State ----------
 let order = [];
 let index = 0;
 let running = false;
@@ -143,10 +258,10 @@ let firstClickUsed = false;
 const byId = new Map(COUNTRIES.map(c => [c.id, c]));
 const completed = new Set();
 
-// Map id -> { rootEl, paintEls[] }
+// id -> { rootEl, paintEls[] }
 const countryEls = new Map();
 
-// ---------- HELPERS ----------
+// ---------- Helpers ----------
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -169,13 +284,10 @@ function stopTimer() {
 function getPaintTargets(rootEl) {
   if (!rootEl) return [];
   const tag = (rootEl.tagName || "").toLowerCase();
-
-  // If it's a group, style the shapes inside it.
   if (tag === "g") {
     const inner = rootEl.querySelectorAll("path, polygon, rect, circle, ellipse, polyline, line");
     return inner.length ? Array.from(inner) : [rootEl];
   }
-
   return [rootEl];
 }
 
@@ -200,66 +312,20 @@ function resetClasses() {
   }
 }
 
-// ---------- OCEAN TRANSPARENCY FIX ----------
-function makeSvgOceanTransparent(svg) {
-  // Remove/neutralize big white background rectangles that cover the whole canvas
-  const rects = svg.querySelectorAll("rect");
-  let changed = 0;
-
-  rects.forEach(r => {
-    const fill = (r.getAttribute("fill") || "").trim().toLowerCase();
-    const w = parseFloat(r.getAttribute("width") || "0");
-    const h = parseFloat(r.getAttribute("height") || "0");
-
-    // Heuristic: huge rect + white/none fill = likely background
-    const isWhiteish =
-      fill === "#fff" || fill === "#ffffff" || fill === "white" || fill === "" || fill === "none";
-
-    if (isWhiteish && (w >= 900 || h >= 500)) {
-      r.setAttribute("fill", "transparent");
-      r.style.fill = "transparent";
-      changed++;
-    }
-  });
-
-  // If no big rect found, sometimes the background is a <path>.
-  if (changed === 0) {
-    const paths = svg.querySelectorAll("path");
-    paths.forEach(p => {
-      const fill = (p.getAttribute("fill") || "").trim().toLowerCase();
-      const isWhiteish = fill === "#fff" || fill === "#ffffff" || fill === "white";
-      if (isWhiteish) {
-        p.setAttribute("fill", "transparent");
-        p.style.fill = "transparent";
-      }
-    });
-  }
+function setPrompt(country) {
+  promptEl.textContent = country ? country.name : "—";
+  subpromptEl.textContent = country ? `(${country.id})` : "";
 }
 
-// ---------- QUIZ FLOW ----------
-function nextPrompt() {
-  const total = COUNTRIES.length;
-
-  if (index >= total) {
-    stopTimer();
-    promptEl.textContent = "—";
-    mapStatus.textContent = "Finished.";
-
-    const pct = (score / total) * 100;
-    resultsEl.innerHTML = `
-      <strong>Score:</strong> ${score} / ${total} (${pct.toFixed(1)}%)<br>
-      <strong>Time:</strong> ${timerEl.textContent}
-    `;
-    return;
-  }
-
-  firstClickUsed = false;
-  const country = byId.get(order[index]);
-  promptEl.textContent = country.name;
-  speak(country.name);
-  mapStatus.textContent = "Click the correct country on the map.";
+function setStatus(text) {
+  mapStatus.textContent = text;
 }
 
+function setProgress() {
+  progressEl.textContent = `${Math.min(index, COUNTRIES.length)} / ${COUNTRIES.length}`;
+}
+
+// ---------- Feedback ----------
 function markWrong(id) {
   addClassToTargets(id, "wrong");
   setTimeout(() => removeClassFromTargets(id, "wrong"), 1000);
@@ -270,6 +336,63 @@ function markCorrect(id) {
   addClassToTargets(id, "locked");
 }
 
+// ---------- End modal ----------
+function openEndModal({ percentText, timeText, perfect }) {
+  finalPercentEl.textContent = percentText;
+  finalTimeEl.textContent = timeText;
+
+  if (perfect) {
+    perfectBox.classList.remove("hidden");
+    startConfetti(confettiCanvas);
+    playFanfare();
+  } else {
+    perfectBox.classList.add("hidden");
+    stopConfetti();
+  }
+
+  endModal.classList.remove("hidden");
+}
+
+function closeEndModal() {
+  endModal.classList.add("hidden");
+  stopConfetti();
+}
+
+// ---------- Quiz flow ----------
+function nextPrompt() {
+  if (index >= COUNTRIES.length) {
+    stopTimer();
+    setPrompt(null);
+    setStatus("Finished.");
+
+    const elapsed = (performance.now() - startTime) / 1000;
+    const pct = (score / COUNTRIES.length) * 100;
+    const perfect = score === COUNTRIES.length;
+
+    // Update side panel too
+    resultsEl.classList.remove("muted");
+    resultsEl.innerHTML = `
+      <div><strong>Score:</strong> ${score} / ${COUNTRIES.length} (${pct.toFixed(1)}%)</div>
+      <div><strong>Time:</strong> ${elapsed.toFixed(1)}s</div>
+    `;
+
+    openEndModal({
+      percentText: `${pct.toFixed(1)}%`,
+      timeText: `${elapsed.toFixed(1)}s`,
+      perfect
+    });
+
+    return;
+  }
+
+  firstClickUsed = false;
+  const country = byId.get(order[index]);
+  setPrompt(country);
+  speak(country.name);
+  setStatus("Click the correct country on the map.");
+}
+
+// ---------- Click handling ----------
 function handleCountryClick(id) {
   if (!running) return;
   if (completed.has(id)) return;
@@ -278,35 +401,30 @@ function handleCountryClick(id) {
 
   if (id === targetId) {
     if (!firstClickUsed) score++;
-
     completed.add(id);
     markCorrect(id);
 
     index++;
-    progressEl.textContent = `${index} / ${COUNTRIES.length}`;
+    setProgress();
     nextPrompt();
   } else {
     if (!firstClickUsed) firstClickUsed = true;
-
     playWrongBeep();
     markWrong(id);
-    mapStatus.textContent = "Nope — try again.";
+    setStatus("Nope — try again.");
   }
 }
 
-// ---------- LOAD SVG ----------
+// ---------- Load SVG ----------
 async function loadSVG() {
   try {
-    mapStatus.textContent = "Loading map…";
+    setStatus("Loading map…");
     const res = await fetch("americas.svg", { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     mapContainer.innerHTML = await res.text();
 
-    const svg = mapContainer.querySelector("svg");
-    if (svg) makeSvgOceanTransparent(svg);
-
-    // Build element map and attach listeners
+    // Wire up countries
     for (const { id } of COUNTRIES) {
       const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
       if (!rootEl) continue;
@@ -314,7 +432,6 @@ async function loadSVG() {
       const paintEls = getPaintTargets(rootEl);
       countryEls.set(id, { rootEl, paintEls });
 
-      // Ensure baseline class for styling
       for (const el of paintEls) el.classList.add("country");
 
       const clickHandler = (e) => {
@@ -323,7 +440,6 @@ async function loadSVG() {
         handleCountryClick(id);
       };
 
-      // Attach click to root AND paint elements
       rootEl.addEventListener("click", clickHandler);
       for (const el of paintEls) el.addEventListener("click", clickHandler);
     }
@@ -341,18 +457,50 @@ async function loadSVG() {
       rootEl.style.pointerEvents = "none";
     }
 
-    progressEl.textContent = `0 / ${COUNTRIES.length}`;
-    mapStatus.textContent = "Map loaded.";
+    setStatus("Map loaded.");
+    setProgress();
+    setPrompt(null);
   } catch (err) {
     console.error(err);
-    mapStatus.textContent = "Failed to load americas.svg (check filename/location).";
+    setStatus('Failed to load "americas.svg"');
+    resultsEl.classList.remove("muted");
+    resultsEl.textContent = 'Could not load americas.svg. Make sure it is in the repo root.';
   }
 }
 
-// ---------- BUTTONS ----------
+// ---------- Reset ----------
+function resetUI() {
+  stopTimer();
+  running = false;
+
+  score = 0;
+  index = 0;
+  firstClickUsed = false;
+  completed.clear();
+
+  resultsEl.classList.add("muted");
+  resultsEl.textContent = "Press Start to begin.";
+  timerEl.textContent = "0.0s";
+
+  startBtn.disabled = false;
+  restartBtn.disabled = true;
+
+  setPrompt(null);
+  setStatus("Ready.");
+  setProgress();
+
+  resetClasses();
+  closeEndModal();
+}
+
+// ---------- Buttons ----------
 startBtn.addEventListener("click", () => {
+  // Prime/unlock audio on user gesture
   ensureAudio();
   pickVoice();
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+
+  closeEndModal();
 
   order = shuffle(COUNTRIES.map(c => c.id));
   index = 0;
@@ -360,6 +508,7 @@ startBtn.addEventListener("click", () => {
   completed.clear();
   firstClickUsed = false;
 
+  resultsEl.classList.add("muted");
   resultsEl.textContent = "Quiz running…";
   startBtn.disabled = true;
   restartBtn.disabled = false;
@@ -370,29 +519,22 @@ startBtn.addEventListener("click", () => {
   running = true;
   tick();
 
-  progressEl.textContent = `0 / ${COUNTRIES.length}`;
+  setProgress();
   nextPrompt();
 });
 
-restartBtn.addEventListener("click", () => {
-  stopTimer();
-  running = false;
+restartBtn.addEventListener("click", resetUI);
+modalRestartBtn.addEventListener("click", () => {
+  closeEndModal();
+  resetUI();
+});
+closeModalBtn.addEventListener("click", closeEndModal);
 
-  // Stop any queued speech
-  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-
-  startBtn.disabled = false;
-  restartBtn.disabled = true;
-
-  resultsEl.textContent = "Press Start to begin.";
-  promptEl.textContent = "—";
-  mapStatus.textContent = "Ready.";
-
-  completed.clear();
-  resetClasses();
-  progressEl.textContent = `0 / ${COUNTRIES.length}`;
-  timerEl.textContent = "0.0s";
+// Close modal if user clicks backdrop
+endModal.addEventListener("click", (e) => {
+  if (e.target.classList.contains("modal-backdrop")) closeEndModal();
 });
 
 // Init
+resetUI();
 loadSVG();
