@@ -1,8 +1,16 @@
 // Americas Map Quiz (GitHub Pages)
 // Uses americas.svg in repo root
 //
-// End-of-quiz giant modal with percent/time.
-// If 100%: fireworks + confetti animation + simple WebAudio fanfare.
+// Features:
+// - Timed quiz with randomized order
+// - Spoken country names (TTS) [Mac Chrome tuned voice + reliability]
+// - Error beep on wrong click
+// - Longer red flash on wrong click (1s)
+// - Small Caribbean islands visible but disabled
+// - Includes Puerto Rico (USA) and French Guiana (France)
+// - Fix for SVG groups (<g>) like Bahamas/Jamaica: apply classes to paintable child shapes
+// - End-of-quiz giant modal with percent/time
+// - If 100%: fireworks emoji + confetti animation + WebAudio fanfare
 
 const COUNTRIES = [
   // North America
@@ -46,39 +54,126 @@ const COUNTRIES = [
   { id: "gf", name: "French Guiana (France)" }
 ];
 
+// Small Caribbean islands to show but disable (still visible)
 const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
 
 // ---------- Speech (TTS) ----------
 let speechEnabled = true;
 let selectedVoice = null;
 
+// MacBook Chrome–tuned voice picking (prefers Google US English if available)
 function pickVoice() {
   if (!("speechSynthesis" in window)) return;
+
   const voices = window.speechSynthesis.getVoices();
   if (!voices.length) return;
 
-  selectedVoice =
-    voices.find(v => /^en/i.test(v.lang) && /Google|Microsoft|Alex|Samantha|Daniel/i.test(v.name)) ||
-    voices.find(v => /^en/i.test(v.lang)) ||
-    voices[0];
+  const isEnglish = (v) => /^en(-|_)?/i.test(v.lang || "");
+
+  // BEST OPTIONS on Chrome for macOS (in order)
+  const preferredNameMatchers = [
+    /google (us )?english/i, // usually the smoothest on Chrome
+    /google english/i,
+
+    /samantha/i, // Apple voices (often available)
+    /alex/i,
+    /daniel/i,
+    /karen/i,
+    /moira/i,
+
+    /microsoft/i // sometimes present
+  ];
+
+  // 1) Try preferred names first
+  for (const rx of preferredNameMatchers) {
+    const v = voices.find(v => isEnglish(v) && rx.test(v.name || ""));
+    if (v) {
+      selectedVoice = v;
+      return;
+    }
+  }
+
+  // 2) Otherwise pick any en-US voice
+  const enUS = voices.find(v => (v.lang || "").toLowerCase() === "en-us");
+  if (enUS) {
+    selectedVoice = enUS;
+    return;
+  }
+
+  // 3) Otherwise any English voice
+  selectedVoice = voices.find(isEnglish) || voices[0];
 }
 
+// Some browsers load voices asynchronously
 if ("speechSynthesis" in window) {
   pickVoice();
-  window.speechSynthesis.onvoiceschanged = pickVoice;
+  window.speechSynthesis.onvoiceschanged = () => pickVoice();
 }
+
+// Pronunciation overrides (optional, but helps a couple names sound nicer)
+const PRONUNCIATION = {
+  // Example: you can add more later if desired
+  // "bs": "The Bahamas",
+  // "us": "United States of America",
+};
+
+let lastSpokenText = "";
+let lastSpeakAt = 0;
 
 function speak(text) {
   if (!speechEnabled) return;
   if (!("speechSynthesis" in window)) return;
 
-  window.speechSynthesis.cancel();
+  const now = performance.now();
+
+  // Prevent rapid duplicate calls (can cause silent drops)
+  if (text === lastSpokenText && (now - lastSpeakAt) < 300) return;
+
+  lastSpokenText = text;
+  lastSpeakAt = now;
+
+  const synth = window.speechSynthesis;
+
+  // Cancel only if currently speaking/queued (less aggressive than always cancel)
+  if (synth.speaking || synth.pending) synth.cancel();
+
   const u = new SpeechSynthesisUtterance(text);
+
+  // Helps Chrome/macOS use the intended voice/cadence
+  u.lang = "en-US";
+
   if (selectedVoice) u.voice = selectedVoice;
-  u.rate = 0.95;
-  u.pitch = 1.0;
+
+  // Sweet spot for naturalness
+  u.rate = 0.90;
+  u.pitch = 0.92;
   u.volume = 1.0;
-  window.speechSynthesis.speak(u);
+
+  let started = false;
+  u.onstart = () => { started = true; };
+
+  // Tiny delay makes it sound less rushed and avoids clipped first syllables
+  setTimeout(() => {
+    try {
+      synth.speak(u);
+    } catch (_) {}
+  }, 50);
+
+  // Safety retry: if it didn’t start, retry once
+  setTimeout(() => {
+    if (!started && !synth.speaking) {
+      try {
+        synth.cancel();
+        const u2 = new SpeechSynthesisUtterance(text);
+        u2.lang = "en-US";
+        if (selectedVoice) u2.voice = selectedVoice;
+        u2.rate = 0.90;
+        u2.pitch = 0.92;
+        u2.volume = 1.0;
+        synth.speak(u2);
+      } catch (_) {}
+    }
+  }, 220);
 }
 
 // ---------- Audio (SFX + Fanfare) ----------
@@ -119,7 +214,6 @@ function playFanfare() {
 
   const t0 = audioCtx.currentTime + 0.02;
 
-  // Helper: play one note
   function note(freq, start, dur, type = "triangle", vol = 0.20) {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -136,16 +230,15 @@ function playFanfare() {
     osc.stop(start + dur + 0.02);
   }
 
-  // Simple triumphant arpeggio in C major (C E G C) + chord hit
-  const C4 = 261.63, E4 = 329.63, G4 = 392.00, C5 = 523.25;
-  const C3 = 130.81, G3 = 196.00, E3 = 164.81;
+  // Simple triumphant arpeggio in C major + chord hit
+  const C4 = 261.63, E4 = 329.63, G4 = 392.0, C5 = 523.25;
+  const C3 = 130.81, E3 = 164.81, G3 = 196.0;
 
   note(C4, t0 + 0.00, 0.20, "triangle", 0.22);
   note(E4, t0 + 0.18, 0.20, "triangle", 0.22);
   note(G4, t0 + 0.36, 0.22, "triangle", 0.22);
   note(C5, t0 + 0.56, 0.28, "triangle", 0.24);
 
-  // Final chord “hit”
   note(C3, t0 + 0.92, 0.55, "sine", 0.18);
   note(E3, t0 + 0.92, 0.55, "sine", 0.16);
   note(G3, t0 + 0.92, 0.55, "sine", 0.16);
@@ -194,9 +287,7 @@ function startConfetti(canvas) {
   function frame() {
     if (!confettiActive) return;
 
-    // Keep sized to modal (if user resizes)
     resize();
-
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     for (const p of parts) {
@@ -237,7 +328,7 @@ const resultsEl = document.getElementById("results");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 
-// End modal
+// End modal (optional elements; code won’t crash if you removed some)
 const endModal = document.getElementById("endModal");
 const closeModalBtn = document.getElementById("closeModalBtn");
 const modalRestartBtn = document.getElementById("modalRestartBtn");
@@ -297,10 +388,15 @@ function addClassToTargets(id, className) {
   for (const el of entry.paintEls) el.classList.add(className);
 }
 
-function removeClassFromTargets(id, className) {
+function removeClassToTargets(id, className) {
   const entry = countryEls.get(id);
   if (!entry) return;
   for (const el of entry.paintEls) el.classList.remove(className);
+}
+
+// Backward-compatible alias (in case you were using this name elsewhere)
+function removeClassFromTargets(id, className) {
+  removeClassToTargets(id, className);
 }
 
 function resetClasses() {
@@ -314,7 +410,7 @@ function resetClasses() {
 
 function setPrompt(country) {
   promptEl.textContent = country ? country.name : "—";
-  subpromptEl.textContent = country ? `(${country.id})` : "";
+  if (subpromptEl) subpromptEl.textContent = country ? `(${country.id})` : "";
 }
 
 function setStatus(text) {
@@ -338,15 +434,17 @@ function markCorrect(id) {
 
 // ---------- End modal ----------
 function openEndModal({ percentText, timeText, perfect }) {
-  finalPercentEl.textContent = percentText;
-  finalTimeEl.textContent = timeText;
+  if (!endModal) return;
+
+  if (finalPercentEl) finalPercentEl.textContent = percentText;
+  if (finalTimeEl) finalTimeEl.textContent = timeText;
 
   if (perfect) {
-    perfectBox.classList.remove("hidden");
-    startConfetti(confettiCanvas);
+    if (perfectBox) perfectBox.classList.remove("hidden");
+    if (confettiCanvas) startConfetti(confettiCanvas);
     playFanfare();
   } else {
-    perfectBox.classList.add("hidden");
+    if (perfectBox) perfectBox.classList.add("hidden");
     stopConfetti();
   }
 
@@ -354,6 +452,7 @@ function openEndModal({ percentText, timeText, perfect }) {
 }
 
 function closeEndModal() {
+  if (!endModal) return;
   endModal.classList.add("hidden");
   stopConfetti();
 }
@@ -369,12 +468,13 @@ function nextPrompt() {
     const pct = (score / COUNTRIES.length) * 100;
     const perfect = score === COUNTRIES.length;
 
-    // Update side panel too
-    resultsEl.classList.remove("muted");
-    resultsEl.innerHTML = `
-      <div><strong>Score:</strong> ${score} / ${COUNTRIES.length} (${pct.toFixed(1)}%)</div>
-      <div><strong>Time:</strong> ${elapsed.toFixed(1)}s</div>
-    `;
+    if (resultsEl) {
+      resultsEl.classList.remove("muted");
+      resultsEl.innerHTML = `
+        <div><strong>Score:</strong> ${score} / ${COUNTRIES.length} (${pct.toFixed(1)}%)</div>
+        <div><strong>Time:</strong> ${elapsed.toFixed(1)}s</div>
+      `;
+    }
 
     openEndModal({
       percentText: `${pct.toFixed(1)}%`,
@@ -388,7 +488,11 @@ function nextPrompt() {
   firstClickUsed = false;
   const country = byId.get(order[index]);
   setPrompt(country);
-  speak(country.name);
+
+  // Speak the country name (use pronunciation override if present)
+  const spoken = PRONUNCIATION[country.id] || country.name;
+  speak(spoken);
+
   setStatus("Click the correct country on the map.");
 }
 
@@ -463,8 +567,10 @@ async function loadSVG() {
   } catch (err) {
     console.error(err);
     setStatus('Failed to load "americas.svg"');
-    resultsEl.classList.remove("muted");
-    resultsEl.textContent = 'Could not load americas.svg. Make sure it is in the repo root.';
+    if (resultsEl) {
+      resultsEl.classList.remove("muted");
+      resultsEl.textContent = 'Could not load americas.svg. Make sure it is in the repo root.';
+    }
   }
 }
 
@@ -473,17 +579,22 @@ function resetUI() {
   stopTimer();
   running = false;
 
+  // Stop any queued speech
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+
   score = 0;
   index = 0;
   firstClickUsed = false;
   completed.clear();
 
-  resultsEl.classList.add("muted");
-  resultsEl.textContent = "Press Start to begin.";
-  timerEl.textContent = "0.0s";
+  if (resultsEl) {
+    resultsEl.classList.add("muted");
+    resultsEl.textContent = "Press Start to begin.";
+  }
+  if (timerEl) timerEl.textContent = "0.0s";
 
-  startBtn.disabled = false;
-  restartBtn.disabled = true;
+  if (startBtn) startBtn.disabled = false;
+  if (restartBtn) restartBtn.disabled = true;
 
   setPrompt(null);
   setStatus("Ready.");
@@ -494,11 +605,19 @@ function resetUI() {
 }
 
 // ---------- Buttons ----------
-startBtn.addEventListener("click", () => {
+startBtn?.addEventListener("click", () => {
   // Prime/unlock audio on user gesture
   ensureAudio();
   pickVoice();
-  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+
+  // Warm up the speech engine (reduces occasional drops)
+  try {
+    const warm = new SpeechSynthesisUtterance(" ");
+    warm.lang = "en-US";
+    warm.volume = 0; // silent
+    window.speechSynthesis.speak(warm);
+    window.speechSynthesis.cancel();
+  } catch (_) {}
 
   closeEndModal();
 
@@ -508,10 +627,12 @@ startBtn.addEventListener("click", () => {
   completed.clear();
   firstClickUsed = false;
 
-  resultsEl.classList.add("muted");
-  resultsEl.textContent = "Quiz running…";
+  if (resultsEl) {
+    resultsEl.classList.add("muted");
+    resultsEl.textContent = "Quiz running…";
+  }
   startBtn.disabled = true;
-  restartBtn.disabled = false;
+  if (restartBtn) restartBtn.disabled = false;
 
   resetClasses();
 
@@ -523,16 +644,16 @@ startBtn.addEventListener("click", () => {
   nextPrompt();
 });
 
-restartBtn.addEventListener("click", resetUI);
-modalRestartBtn.addEventListener("click", () => {
+restartBtn?.addEventListener("click", resetUI);
+modalRestartBtn?.addEventListener("click", () => {
   closeEndModal();
   resetUI();
 });
-closeModalBtn.addEventListener("click", closeEndModal);
+closeModalBtn?.addEventListener("click", closeEndModal);
 
 // Close modal if user clicks backdrop
-endModal.addEventListener("click", (e) => {
-  if (e.target.classList.contains("modal-backdrop")) closeEndModal();
+endModal?.addEventListener("click", (e) => {
+  if (e.target.classList && e.target.classList.contains("modal-backdrop")) closeEndModal();
 });
 
 // Init
