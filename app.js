@@ -1,10 +1,13 @@
 // Americas Map Quiz (GitHub Pages)
 // Uses americas.svg (BlankMap-Americas.svg renamed to americas.svg)
 //
-// The SVG uses lowercase ISO-2 IDs (e.g., us, ca, mx, br).
-// Option A: Keep tiny Caribbean islands visible but disabled.
-// Add-ons: (1) longer red flash on wrong clicks, (2) TTS speaks each country name,
-// (3) wrong-click error beep sound (no external audio files needed).
+// Features:
+// - Timed quiz with randomized order
+// - Spoken country names (TTS)
+// - Error beep on wrong click
+// - Longer red flash on wrong click
+// - Small Caribbean islands visible but disabled
+// - Includes Puerto Rico (USA) and French Guiana (France)
 
 const COUNTRIES = [
   // North America
@@ -41,52 +44,48 @@ const COUNTRIES = [
   { id: "jm", name: "Jamaica" },
   { id: "ht", name: "Haiti" },
   { id: "do", name: "Dominican Republic" },
-  { id: "tt", name: "Trinidad and Tobago" }
+  { id: "tt", name: "Trinidad and Tobago" },
+
+  // Territories
+  { id: "pr", name: "Puerto Rico (USA)" },
+  { id: "gf", name: "French Guiana (France)" }
 ];
 
-// Keep these visible but NOT clickable and NOT included in prompts.
+// Small Caribbean islands to show but disable
 const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
 
-// ---------- Speech (Text-to-Speech) ----------
+// ---------- SPEECH (TEXT TO SPEECH) ----------
 let speechEnabled = true;
 let selectedVoice = null;
 
 function pickVoice() {
   if (!("speechSynthesis" in window)) return;
-  const voices = window.speechSynthesis.getVoices() || [];
+  const voices = window.speechSynthesis.getVoices();
   if (!voices.length) return;
 
-  // Prefer an English voice if available
   selectedVoice =
-    voices.find(v => /^en(-|_)?/i.test(v.lang) && /Google|Microsoft|Samantha|Daniel|Alex/i.test(v.name)) ||
-    voices.find(v => /^en(-|_)?/i.test(v.lang)) ||
+    voices.find(v => /^en/i.test(v.lang) && /Google|Microsoft|Alex|Samantha/i.test(v.name)) ||
+    voices.find(v => /^en/i.test(v.lang)) ||
     voices[0];
 }
 
-// Some browsers load voices asynchronously
 if ("speechSynthesis" in window) {
   pickVoice();
-  window.speechSynthesis.onvoiceschanged = () => pickVoice();
+  window.speechSynthesis.onvoiceschanged = pickVoice;
 }
 
 function speak(text) {
   if (!speechEnabled) return;
   if (!("speechSynthesis" in window)) return;
 
-  // Cancel queued speech so it stays snappy
   window.speechSynthesis.cancel();
-
   const u = new SpeechSynthesisUtterance(text);
   if (selectedVoice) u.voice = selectedVoice;
-  u.rate = 0.95;  // slightly slower for clarity
-  u.pitch = 1.0;
-  u.volume = 1.0;
-
+  u.rate = 0.95;
   window.speechSynthesis.speak(u);
 }
 
-// ---------- SFX (Web Audio) ----------
-let sfxEnabled = true;
+// ---------- SOUND EFFECTS ----------
 let audioCtx = null;
 
 function ensureAudio() {
@@ -96,61 +95,52 @@ function ensureAudio() {
 }
 
 function playWrongBeep() {
-  if (!sfxEnabled) return;
-  if (!(window.AudioContext || window.webkitAudioContext)) return;
-
   ensureAudio();
   if (!audioCtx) return;
 
-  const t0 = audioCtx.currentTime;
-
+  const t = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
 
-  // Error sound: quick down-sweep
   osc.type = "square";
-  osc.frequency.setValueAtTime(440, t0);
-  osc.frequency.exponentialRampToValueAtTime(220, t0 + 0.12);
+  osc.frequency.setValueAtTime(440, t);
+  osc.frequency.exponentialRampToValueAtTime(220, t + 0.12);
 
-  // Envelope
-  gain.gain.setValueAtTime(0.0001, t0);
-  gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.01);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.18, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
 
   osc.connect(gain);
   gain.connect(audioCtx.destination);
 
-  osc.start(t0);
-  osc.stop(t0 + 0.18);
+  osc.start(t);
+  osc.stop(t + 0.18);
 }
 
 // ---------- DOM ----------
 const mapContainer = document.getElementById("mapContainer");
 const mapStatus = document.getElementById("mapStatus");
 const promptEl = document.getElementById("prompt");
-const subpromptEl = document.getElementById("subprompt");
 const timerEl = document.getElementById("timer");
 const progressEl = document.getElementById("progress");
 const resultsEl = document.getElementById("results");
 const startBtn = document.getElementById("startBtn");
 const restartBtn = document.getElementById("restartBtn");
 
-// ---------- State ----------
+// ---------- STATE ----------
 let order = [];
 let index = 0;
-
 let running = false;
 let startTime = 0;
 let rafId = 0;
-
-let score = 0;               // points earned (only first click per prompt)
-let firstClickUsed = false;  // for current prompt
+let score = 0;
+let firstClickUsed = false;
 
 const total = COUNTRIES.length;
 const byId = new Map(COUNTRIES.map(c => [c.id, c]));
-const completed = new Set(); // ids already finished
+const completed = new Set();
 
-// ---------- Helpers ----------
+// ---------- HELPERS ----------
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -159,101 +149,38 @@ function shuffle(arr) {
   return arr;
 }
 
-function formatSeconds(sec) {
-  return `${sec.toFixed(1)}s`;
-}
-
-function setStatus(text) {
-  mapStatus.textContent = text;
-}
-
-function setPrompt(country) {
-  promptEl.textContent = country ? country.name : "—";
-  subpromptEl.textContent = country ? `(${country.id})` : "";
-}
-
-function setProgress() {
-  progressEl.textContent = `${Math.min(index, total)} / ${total}`;
-}
-
 function tick() {
   if (!running) return;
-  const elapsed = (performance.now() - startTime) / 1000;
-  timerEl.textContent = formatSeconds(elapsed);
+  timerEl.textContent = `${((performance.now() - startTime) / 1000).toFixed(1)}s`;
   rafId = requestAnimationFrame(tick);
 }
 
 function stopTimer() {
   running = false;
   cancelAnimationFrame(rafId);
-  rafId = 0;
 }
 
-function resetUI() {
-  resultsEl.classList.add("muted");
-  resultsEl.textContent = "Press Start to begin.";
-  timerEl.textContent = "0.0s";
-
-  score = 0;
-  index = 0;
-  firstClickUsed = false;
-  completed.clear();
-
-  setProgress();
-  setPrompt(null);
-
-  startBtn.disabled = false;
-  restartBtn.disabled = true;
-
-  // Reset classes for active quiz countries
-  for (const { id } of COUNTRIES) {
-    const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
-    if (el) el.setAttribute("class", "country");
-  }
-
-  // Re-apply disabled styling (in case restart)
-  for (const id of DISABLED_ISLANDS) {
-    const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
-    if (!el) continue;
-    el.classList.add("disabled-island");
-    el.style.pointerEvents = "none";
-  }
-}
-
-function showFinal() {
-  const elapsed = (performance.now() - startTime) / 1000;
-  const pct = (score / total) * 100;
-
-  resultsEl.classList.remove("muted");
-  resultsEl.innerHTML = `
-    <div><strong>Score:</strong> ${score} / ${total} (${pct.toFixed(1)}%)</div>
-    <div><strong>Time:</strong> ${formatSeconds(elapsed)}</div>
-  `;
-}
-
-// ---------- Quiz flow ----------
 function nextPrompt() {
   if (index >= total) {
     stopTimer();
-    setPrompt(null);
-    setStatus("Finished.");
-    showFinal();
+    promptEl.textContent = "—";
+    mapStatus.textContent = "Finished.";
+    resultsEl.innerHTML = `
+      <strong>Score:</strong> ${score} / ${total} (${((score / total) * 100).toFixed(1)}%)<br>
+      <strong>Time:</strong> ${timerEl.textContent}
+    `;
     return;
   }
 
   firstClickUsed = false;
-  const id = order[index];
-  const country = byId.get(id);
-
-  setPrompt(country);
+  const country = byId.get(order[index]);
+  promptEl.textContent = country.name;
   speak(country.name);
-  setStatus("Click the correct country on the map.");
+  mapStatus.textContent = "Click the correct country on the map.";
 }
 
-// ---------- Click feedback ----------
 function markWrong(el) {
   el.classList.add("wrong");
-  // Keep it red for a full second
   setTimeout(() => el.classList.remove("wrong"), 1000);
 }
 
@@ -261,91 +188,56 @@ function markCorrect(el) {
   el.classList.add("correct", "locked");
 }
 
-// ---------- Click handling ----------
+// ---------- CLICK HANDLING ----------
 function handleCountryClick(id, el) {
-  if (!running) return;
-  if (completed.has(id)) return;
+  if (!running || completed.has(id)) return;
 
-  const targetId = order[index];
-  if (!targetId) return;
-
-  if (id === targetId) {
-    // Award point only if first click for this prompt
-    if (!firstClickUsed) score += 1;
-
+  if (id === order[index]) {
+    if (!firstClickUsed) score++;
     completed.add(id);
     markCorrect(el);
-
-    index += 1;
-    setProgress();
+    index++;
+    progressEl.textContent = `${index} / ${total}`;
     nextPrompt();
   } else {
-    // Wrong click: consumes first click for point eligibility
-    if (!firstClickUsed) firstClickUsed = true;
-
+    firstClickUsed = true;
     playWrongBeep();
     markWrong(el);
-    setStatus("Nope — try again.");
+    mapStatus.textContent = "Nope — try again.";
   }
 }
 
-// ---------- SVG loading ----------
+// ---------- LOAD SVG ----------
 async function loadSVG() {
-  try {
-    setStatus("Loading map…");
-    const res = await fetch("americas.svg", { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await fetch("americas.svg");
+  mapContainer.innerHTML = await res.text();
 
-    const svgText = await res.text();
-    mapContainer.innerHTML = svgText;
+  for (const { id } of COUNTRIES) {
+    const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
+    if (!el) continue;
+    el.classList.add("country");
+    el.addEventListener("click", e => {
+      e.preventDefault();
+      handleCountryClick(id, el);
+    });
+  }
 
-    // Wire up active quiz countries
-    for (const { id } of COUNTRIES) {
-      const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
-      if (!el) continue;
-
-      el.classList.add("country");
-      el.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        handleCountryClick(id, el);
-      });
-    }
-
-    // Disable tiny Caribbean islands (still visible)
-    for (const id of DISABLED_ISLANDS) {
-      const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
-      if (!el) continue;
+  for (const id of DISABLED_ISLANDS) {
+    const el = mapContainer.querySelector(`#${CSS.escape(id)}`);
+    if (el) {
       el.classList.add("disabled-island");
       el.style.pointerEvents = "none";
     }
-
-    const missing = COUNTRIES.filter(c => !mapContainer.querySelector(`#${CSS.escape(c.id)}`));
-    if (missing.length) {
-      setStatus(`Map loaded, but missing ${missing.length} IDs (open console).`);
-      console.warn("Missing IDs:", missing.map(m => m.id));
-    } else {
-      setStatus("Map loaded.");
-    }
-
-    setProgress();
-    setPrompt(null);
-  } catch (err) {
-    console.error(err);
-    setStatus('Failed to load "americas.svg"');
-    resultsEl.classList.remove("muted");
-    resultsEl.textContent = 'Could not load americas.svg. Make sure it is in the repo root.';
   }
+
+  progressEl.textContent = `0 / ${total}`;
+  mapStatus.textContent = "Map loaded.";
 }
 
-// ---------- Buttons ----------
+// ---------- BUTTONS ----------
 startBtn.addEventListener("click", () => {
-  // Prime/Unlock audio on user gesture
-  if ("speechSynthesis" in window) {
-    pickVoice();
-    window.speechSynthesis.cancel();
-  }
   ensureAudio();
+  pickVoice();
 
   order = shuffle(COUNTRIES.map(c => c.id));
   index = 0;
@@ -353,7 +245,6 @@ startBtn.addEventListener("click", () => {
   completed.clear();
   firstClickUsed = false;
 
-  resultsEl.classList.add("muted");
   resultsEl.textContent = "Quiz running…";
   startBtn.disabled = true;
   restartBtn.disabled = false;
@@ -362,15 +253,18 @@ startBtn.addEventListener("click", () => {
   running = true;
   tick();
 
-  setProgress();
+  progressEl.textContent = `0 / ${total}`;
   nextPrompt();
 });
 
 restartBtn.addEventListener("click", () => {
   stopTimer();
-  resetUI();
+  startBtn.disabled = false;
+  restartBtn.disabled = true;
+  resultsEl.textContent = "Press Start to begin.";
+  promptEl.textContent = "—";
+  mapStatus.textContent = "Ready.";
 });
 
 // Init
-resetUI();
 loadSVG();
