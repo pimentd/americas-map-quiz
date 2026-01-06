@@ -92,8 +92,27 @@ button.primary{
   background: rgba(53, 208, 127, 0.25);   /* green */
   border-color: rgba(53, 208, 127, 0.75);
   color: #eafff4;
-  box-shadow: 0 0 0 3px rgba(53, 208, 127, 0.20);
+
+  /* size + emphasis */
+  padding: 14px 20px;        /* bigger than other buttons */
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px rgba(53, 208, 127, 0.20),
+    0 8px 20px rgba(0,0,0,0.35);
 }
+button.primary:hover{
+  background: rgba(53, 208, 127, 0.35);
+  transform: translateY(-1px);
+}
+
+button.primary:active{
+  transform: translateY(0);
+}
+
 
 
 button:disabled{
