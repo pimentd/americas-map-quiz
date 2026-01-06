@@ -1,4 +1,4 @@
-// app.js — FULL FILE (your current layout IDs)
+// app.js — FULL FILE (with visible click rings for Bahamas + Trinidad & Tobago)
 
 // ---------------- Data ----------------
 const COUNTRIES = [
@@ -38,8 +38,10 @@ const COUNTRIES = [
   { id: "gf", name: "French Guiana (France)", region: "south" }
 ];
 
+// If your SVG includes additional tiny islands you disabled previously, keep them here.
 const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
 
+// Optional pronunciation overrides
 const PRONUNCIATION = {};
 
 // ---------------- DOM ----------------
@@ -84,6 +86,9 @@ let firstClickUsed = false;
 // id -> { rootEl, paintEls[] }
 const countryEls = new Map();
 const byId = new Map(COUNTRIES.map(c => [c.id, c]));
+
+// Keep references to hit targets so we can remove/rebuild if needed
+const hitTargets = new Map(); // id -> circleElement
 
 // ---------------- Helpers ----------------
 function setStatus(text) {
@@ -497,6 +502,58 @@ function zoomNextFrame() {
   requestAnimationFrame(() => requestAnimationFrame(zoomToActiveCountries));
 }
 
+// ---------------- Click helper rings ----------------
+function removeHitTarget(id) {
+  const el = hitTargets.get(id);
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+  hitTargets.delete(id);
+}
+
+function addHitCircleForCountry(id, radius) {
+  if (!svgEl) return;
+  const entry = countryEls.get(id);
+  if (!entry) return;
+
+  // Remove existing ring for this id (if any)
+  removeHitTarget(id);
+
+  // Get bbox in SVG viewBox coordinates (robust even if the country/group is transformed)
+  let b = getBBoxInSvgViewBoxCoords(entry.rootEl);
+  if (!b) {
+    for (const pe of entry.paintEls) {
+      b = getBBoxInSvgViewBoxCoords(pe);
+      if (b) break;
+    }
+  }
+  if (!b || !Number.isFinite(b.w) || !Number.isFinite(b.h) || b.w <= 0 || b.h <= 0) return;
+
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+
+  const ns = "http://www.w3.org/2000/svg";
+  const circle = document.createElementNS(ns, "circle");
+  circle.setAttribute("cx", String(cx));
+  circle.setAttribute("cy", String(cy));
+  circle.setAttribute("r", String(radius));
+  circle.classList.add("hit-target");
+
+  circle.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handleCountryClick(id);
+  });
+
+  // Put on top
+  svgEl.appendChild(circle);
+  hitTargets.set(id, circle);
+}
+
+function buildClickHelperRings() {
+  // Only add rings if those shapes exist in the SVG
+  if (countryEls.has("bs")) addHitCircleForCountry("bs", 55); // Bahamas (bigger)
+  if (countryEls.has("tt")) addHitCircleForCountry("tt", 40); // Trinidad & Tobago
+}
+
 // ---------------- Quiz flow ----------------
 function nextPrompt() {
   if (index >= activeCountries.length) {
@@ -606,6 +663,7 @@ async function loadSVG() {
       svgEl.setAttribute("viewBox", originalViewBox);
     }
 
+    // Wire up countries by id
     for (const { id } of COUNTRIES) {
       const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
       if (!rootEl) continue;
@@ -625,6 +683,7 @@ async function loadSVG() {
       for (const el of paintEls) el.addEventListener("click", clickHandler);
     }
 
+    // Disable small islands (optional)
     for (const id of DISABLED_ISLANDS) {
       const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
       if (!rootEl) continue;
@@ -635,6 +694,9 @@ async function loadSVG() {
       }
       rootEl.style.pointerEvents = "none";
     }
+
+    // Add helper click rings for tiny targets
+    buildClickHelperRings();
 
     activeCountries = getActiveCountries();
 
