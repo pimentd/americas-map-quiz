@@ -243,12 +243,13 @@ button:disabled{
 .hit-target{
   fill: rgba(0,0,0,0);       /* invisible fill, still clickable */
   pointer-events: all;       /* click anywhere inside the circle */
-  stroke: rgba(255,255,255,.90);
+  stroke: rgba(0,0,0,.95);   /* BLACK ring */
   stroke-width: 2.5;
   stroke-dasharray: 7 7;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 3px 8px rgba(0,0,0,.55));
+  filter: drop-shadow(0 3px 8px rgba(0,0,0,.35));
 }
+
 
 /* MODAL */
 .modal.hidden{ display:none; }
