@@ -89,9 +89,12 @@ button{
 }
 
 button.primary{
-  background: rgba(122,167,255,.18);
-  border-color: rgba(122,167,255,.45);
+  background: rgba(53, 208, 127, 0.25);   /* green */
+  border-color: rgba(53, 208, 127, 0.75);
+  color: #eafff4;
+  box-shadow: 0 0 0 3px rgba(53, 208, 127, 0.20);
 }
+
 
 button:disabled{
   opacity:.45;
