@@ -550,7 +550,7 @@ function addHitCircleForCountry(id, radius) {
 
 function buildClickHelperRings() {
   // Only add rings if those shapes exist in the SVG
-  if (countryEls.has("bs")) addHitCircleForCountry("bs", 55); // Bahamas (bigger)
+  if (countryEls.has("bs")) addHitCircleForCountry("bs", 45); // Bahamas (smaller version)
   if (countryEls.has("tt")) addHitCircleForCountry("tt", 40); // Trinidad & Tobago
 }
 
