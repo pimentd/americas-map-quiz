@@ -5,10 +5,10 @@
    - Correct = green, wrong = red flash + wrong sound
    - Speech says country name (improved reliability)
    - End modal + confetti + perfect-score jingle
-   - Single primary button:
-       Idle  -> START
-       Running -> START OVER
-       Finished -> PLAY AGAIN
+   - Single primary button flow:
+       Idle     -> START (click starts)
+       Running  -> START OVER (click resets to idle, does NOT auto-start)
+       Finished -> PLAY AGAIN (click resets to idle, does NOT auto-start)
 */
 
 const SVG_CANDIDATES = ["americas.svg", "BlankMap-Americas.svg", "blankmap-americas.svg"];
@@ -58,9 +58,7 @@ const COUNTRIES = [
   { id: "gf", name: "French Guiana (France)", region: "south" }
 ];
 
-const DISABLED_ISLAND_IDS = new Set([
-  // add tiny islands here if you ever re-enable them in the SVG
-]);
+const DISABLED_ISLAND_IDS = new Set([]);
 
 // =====================
 // DOM
@@ -120,10 +118,6 @@ function shuffle(arr) {
   return a;
 }
 
-function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
-}
-
 function fmtTime(ms) {
   return (ms / 1000).toFixed(1) + "s";
 }
@@ -172,12 +166,12 @@ function updateResultsUI(text, muted = false) {
 function updatePrimaryButton() {
   if (running) {
     startBtn.textContent = "Start Over";
-    startBtn.title = "Restart the quiz now";
+    startBtn.title = "Stop and reset the quiz";
     return;
   }
   if (finished) {
     startBtn.textContent = "Play Again";
-    startBtn.title = "Start a new run";
+    startBtn.title = "Reset for another run";
     return;
   }
   startBtn.textContent = "Start";
@@ -190,13 +184,13 @@ function updatePrimaryButton() {
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 function beep(type = "wrong") {
-  // small “gamey” beep using WebAudio (no external files)
   const t = audioCtx.currentTime;
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
 
   o.type = "sine";
   o.frequency.value = type === "wrong" ? 220 : 660;
+
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
@@ -209,9 +203,8 @@ function beep(type = "wrong") {
 }
 
 function playPerfectJingle() {
-  // quick triad-ish jingle
   const now = audioCtx.currentTime;
-  const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+  const notes = [523.25, 659.25, 783.99, 1046.5];
   notes.forEach((freq, i) => {
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
@@ -232,13 +225,8 @@ function playPerfectJingle() {
 }
 
 function speakName(name) {
-  // Chrome on macOS sometimes “misses” speech if you re-trigger too quickly.
-  // This tries to improve reliability:
-  // - cancel any prior utterance
-  // - avoid re-speaking the exact same word immediately
   const now = performance.now();
   if (name === lastSpokenName && now - lastSpokenAt < 400) return;
-
   if (!("speechSynthesis" in window)) return;
 
   try {
@@ -249,7 +237,6 @@ function speakName(name) {
     u.pitch = 1.05;
     u.volume = 1.0;
 
-    // Prefer an English voice (usually sounds less robotic)
     const voices = window.speechSynthesis.getVoices?.() || [];
     const preferred =
       voices.find(v => /en-US/i.test(v.lang) && /Google/i.test(v.name)) ||
@@ -266,10 +253,8 @@ function speakName(name) {
   }
 }
 
-// On some browsers, voices load async
 if ("speechSynthesis" in window) {
   window.speechSynthesis.onvoiceschanged = () => {
-    // noop, but touching it helps some engines populate voices
     window.speechSynthesis.getVoices?.();
   };
 }
@@ -286,7 +271,7 @@ function startConfetti() {
   const rect = confettiCanvas.getBoundingClientRect();
   confettiCanvas.width = Math.floor(rect.width * dpr);
   confettiCanvas.height = Math.floor(rect.height * dpr);
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const W = rect.width;
   const H = rect.height;
@@ -301,8 +286,12 @@ function startConfetti() {
     vr: -0.08 + Math.random() * 0.16
   }));
 
+  const styles = ["rgba(255,255,255,.9)", "rgba(122,167,255,.9)", "rgba(53,208,127,.9)", "rgba(255,92,117,.9)"];
+  let k = 0;
+
   function frame() {
     ctx.clearRect(0, 0, W, H);
+
     for (const p of pieces) {
       p.x += p.vx;
       p.y += p.vy;
@@ -318,6 +307,7 @@ function startConfetti() {
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
+      ctx.fillStyle = styles[k++ % styles.length];
       ctx.fillRect(-p.r, -p.r, p.r * 2, p.r * 2);
       ctx.restore();
     }
@@ -325,23 +315,7 @@ function startConfetti() {
     confettiRAF = requestAnimationFrame(frame);
   }
 
-  // random-ish fill colors without hardcoding specific palette logic
-  // (we just set a different fillStyle a few times to create variety)
-  const origFill = ctx.fillStyle;
-  let i = 0;
-  const styles = ["rgba(255,255,255,.9)", "rgba(122,167,255,.9)", "rgba(53,208,127,.9)", "rgba(255,92,117,.9)"];
-  const oldFillRect = ctx.fillRect.bind(ctx);
-  ctx.fillRect = function(x, y, w, h) {
-    ctx.fillStyle = styles[i++ % styles.length];
-    return oldFillRect(x, y, w, h);
-  };
-
   frame();
-
-  // restore method after starting
-  setTimeout(() => {
-    ctx.fillStyle = origFill;
-  }, 0);
 }
 
 function stopConfetti() {
@@ -388,7 +362,6 @@ function wireUpSVG(svg) {
   countryEls.clear();
   ringEls.clear();
 
-  // countries are paths with ids like "us", "ca", etc
   COUNTRIES.forEach(({ id }) => {
     const el = svg.querySelector(`#${CSS.escape(id)}`);
     if (el) {
@@ -404,8 +377,6 @@ function wireUpSVG(svg) {
     }
   });
 
-  // helper click rings (added in SVG or previously inserted)
-  // class: .hit-target with data-for="bs" etc.
   svg.querySelectorAll(".hit-target").forEach(ring => {
     const forId = ring.getAttribute("data-for");
     if (!forId) return;
@@ -417,10 +388,6 @@ function wireUpSVG(svg) {
     });
   });
 
-  // ocean/lakes styling lives in SVG; container background is also ocean
-  // (we keep both)
-
-  // Make viewBox responsive
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
 }
 
@@ -428,18 +395,16 @@ function wireUpSVG(svg) {
 // Zoom (region focus)
 // =====================
 const ZOOMS = {
-  all:     { x: 0.5, y: 0.5, s: 1.0 },
+  all:      { x: 0.5,  y: 0.5,  s: 1.0 },
   caribbean:{ x: 0.62, y: 0.42, s: 2.0 },
-  central: { x: 0.52, y: 0.52, s: 1.7 },
-  south:   { x: 0.58, y: 0.68, s: 1.5 }
+  central:  { x: 0.52, y: 0.52, s: 1.7 },
+  south:    { x: 0.58, y: 0.68, s: 1.5 }
 };
 
 function applyZoom(modeVal) {
   if (!svgRoot) return;
   const z = ZOOMS[modeVal] || ZOOMS.all;
 
-  // We implement zoom via SVG viewBox manipulation.
-  // We derive the original viewBox, then set a cropped viewBox.
   const vb = svgRoot.viewBox.baseVal;
   if (!vb || !vb.width || !vb.height) return;
 
@@ -494,10 +459,40 @@ function stopTimer() {
   rafId = 0;
 }
 
+// Reset to idle WITHOUT starting
+function resetToIdle() {
+  running = false;
+  finished = false;
+
+  stopTimer();
+  window.speechSynthesis?.cancel?.();
+
+  correct = 0;
+  index = 0;
+  quizList = [];
+
+  resetMapColors();
+  closeEndModal();
+  stopConfetti();
+
+  setModeButtonsDisabled(false);
+  restartBtn && (restartBtn.disabled = true);
+
+  updatePrimaryButton();
+
+  const total = computeListForMode().length;
+  progressEl.textContent = `0 / ${total}`;
+  percentEl.textContent = "0%";
+  updateTimerUI(0);
+  setPrompt("—");
+  updateResultsUI("Press Start to begin.", true);
+
+  applyZoom(mode);
+}
+
 function startQuiz() {
   if (!svgRoot) return;
 
-  // Ensure audio is allowed after user gesture
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
 
   closeEndModal();
@@ -530,31 +525,6 @@ function startQuiz() {
   startTimer();
 }
 
-function restartQuizOnly() {
-  running = false;
-  finished = false;
-
-  stopTimer();
-  window.speechSynthesis?.cancel?.();
-
-  correct = 0;
-  index = 0;
-  quizList = [];
-
-  resetMapColors();
-
-  setModeButtonsDisabled(false);
-  restartBtn && (restartBtn.disabled = true);
-
-  updatePrimaryButton();
-  updateProgressUI();
-  updateTimerUI(0);
-  setPrompt("—");
-  updateResultsUI("Press Start to begin.", true);
-
-  applyZoom(mode);
-}
-
 function endQuiz() {
   running = false;
   finished = true;
@@ -574,7 +544,7 @@ function endQuiz() {
   const perfect = pct === 100 && total > 0;
   perfectBox.classList.toggle("hidden", !perfect);
 
-  openEndModal();
+  endModal.classList.remove("hidden");
 
   if (perfect) {
     startConfetti();
@@ -595,7 +565,6 @@ function onMapClick(id) {
   const targetEl = countryEls.get(tgt.id);
 
   if (id === tgt.id) {
-    // correct
     if (targetEl) targetEl.classList.add("correct", "locked");
     correct++;
     index++;
@@ -612,7 +581,6 @@ function onMapClick(id) {
     setPrompt(next?.name || "—");
     if (next) speakName(next.name);
   } else {
-    // wrong
     if (clickedEl) {
       clickedEl.classList.add("wrong");
       setTimeout(() => clickedEl.classList.remove("wrong"), 650);
@@ -622,40 +590,26 @@ function onMapClick(id) {
 }
 
 // =====================
-// Modal
-// =====================
-function openEndModal() {
-  endModal.classList.remove("hidden");
-}
-
-function closeEndModal() {
-  endModal.classList.add("hidden");
-}
-
-// =====================
-// Event Listeners
+// Events
 // =====================
 startBtn.addEventListener("click", () => {
-  // The one-button behavior:
-  // - Idle: Start
-  // - Running: Start Over (immediate restart)
-  // - Finished: Play Again (start fresh)
+  // Requested flow:
+  // Idle -> START (starts)
+  // Running -> START OVER (resets to idle, does NOT start)
+  // Finished -> PLAY AGAIN (resets to idle, does NOT start)
   if (running) {
-    restartQuizOnly();
-    startQuiz();
+    resetToIdle();
     return;
   }
   if (finished) {
-    restartQuizOnly();
-    startQuiz();
+    resetToIdle();
     return;
   }
   startQuiz();
 });
 
 restartBtn && restartBtn.addEventListener("click", () => {
-  // still works if you ever unhide it
-  restartQuizOnly();
+  resetToIdle();
 });
 
 modebar.addEventListener("click", (e) => {
@@ -666,10 +620,8 @@ modebar.addEventListener("click", (e) => {
   mode = btn.dataset.mode;
   setActiveModeButton(mode);
 
-  // if finished/idle, show the zoom immediately
   applyZoom(mode);
 
-  // If not running, update the total shown in progress
   if (!running) {
     const total = computeListForMode().length;
     progressEl.textContent = `0 / ${total}`;
@@ -678,12 +630,12 @@ modebar.addEventListener("click", (e) => {
 });
 
 closeModalBtn.addEventListener("click", () => {
-  closeEndModal();
+  endModal.classList.add("hidden");
 });
 
 endModal.addEventListener("click", (e) => {
   if (e.target.classList.contains("modal-backdrop")) {
-    closeEndModal();
+    endModal.classList.add("hidden");
   }
 });
 
@@ -694,7 +646,6 @@ endModal.addEventListener("click", (e) => {
   setActiveModeButton(mode);
   updatePrimaryButton();
 
-  // show initial totals
   const total = computeListForMode().length;
   progressEl.textContent = `0 / ${total}`;
   percentEl.textContent = "0%";
