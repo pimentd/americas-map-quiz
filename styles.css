@@ -73,9 +73,14 @@ html, body{
   box-shadow: 0 0 0 3px rgba(122,167,255,.15);
 }
 
-/* Buttons row */
-.btnrow{ display:flex; }
-.btnrow button{ width:100%; }
+/* Buttons row (Start only; Restart hidden) */
+.btnrow{
+  display:flex;
+}
+
+.btnrow button{
+  width:100%;
+}
 
 button{
   border:1px solid rgba(255,255,255,.16);
@@ -85,12 +90,6 @@ button{
   border-radius: 12px;
   cursor:pointer;
   font-weight:850;
-  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
-}
-
-button:disabled{
-  opacity:.45;
-  cursor:not-allowed;
 }
 
 /* BIG green Start button */
@@ -121,32 +120,14 @@ button.primary:active{
   transform: translateY(0);
 }
 
-/* START OVER (danger) style — same big size, but red */
-button.danger{
-  background: rgba(255, 92, 117, 0.22);
-  border-color: rgba(255, 92, 117, 0.80);
-  color: rgba(255,255,255,.95);
-
-  padding: 18px 22px;
-  font-size: 18px;
-  font-weight: 950;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-
-  border-radius: 16px;
-
-  box-shadow:
-    0 0 0 4px rgba(255, 92, 117, 0.18),
-    0 12px 28px rgba(0,0,0,0.40);
+button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
 }
 
-button.danger:hover{
-  background: rgba(255, 92, 117, 0.30);
-  transform: translateY(-1px);
-}
-
-button.danger:active{
-  transform: translateY(0);
+/* Hide Restart (redundant with end modal + Start/Play Again) */
+#restartBtn{
+  display:none;
 }
 
 /* Prompt */
@@ -238,7 +219,7 @@ button.danger:active{
   background: rgba(255,255,255,.03);
 }
 
-/* Make map fill middle column */
+/* Make map fully fill middle column without scroll */
 .map-container{
   width:100%;
   height:100%;
@@ -284,6 +265,11 @@ button.danger:active{
 .correct{ fill: var(--good) !important; }
 .wrong{ fill: var(--bad) !important; }
 .locked{ pointer-events:none; }
+
+.disabled-island{
+  opacity: .45;
+  filter: saturate(.6);
+}
 
 /* Click helper rings (black dashed) */
 .hit-target{
