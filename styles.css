@@ -73,13 +73,9 @@ html, body{
   box-shadow: 0 0 0 3px rgba(122,167,255,.15);
 }
 
-/* Buttons row (Start only; Restart hidden) */
 .btnrow{
   display:flex;
-}
-
-.btnrow button{
-  width:100%;
+  gap:10px;
 }
 
 button{
@@ -92,27 +88,24 @@ button{
   font-weight:850;
 }
 
-/* BIG green Start button */
 button.primary{
-  background: rgba(53, 208, 127, 0.30);
-  border-color: rgba(53, 208, 127, 0.85);
+  background: rgba(53, 208, 127, 0.25);   /* green */
+  border-color: rgba(53, 208, 127, 0.75);
   color: #eafff4;
 
-  padding: 18px 22px;
-  font-size: 18px;
-  font-weight: 950;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
+  /* size + emphasis */
+  padding: 14px 20px;        /* bigger than other buttons */
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
 
-  border-radius: 16px;
-
+  border-radius: 14px;
   box-shadow:
-    0 0 0 4px rgba(53, 208, 127, 0.25),
-    0 12px 28px rgba(0,0,0,0.40);
+    0 0 0 3px rgba(53, 208, 127, 0.20),
+    0 8px 20px rgba(0,0,0,0.35);
 }
-
 button.primary:hover{
-  background: rgba(53, 208, 127, 0.40);
+  background: rgba(53, 208, 127, 0.35);
   transform: translateY(-1px);
 }
 
@@ -120,14 +113,11 @@ button.primary:active{
   transform: translateY(0);
 }
 
+
+
 button:disabled{
   opacity:.45;
   cursor:not-allowed;
-}
-
-/* Hide Restart (redundant with end modal + Start/Play Again) */
-#restartBtn{
-  display:none;
 }
 
 /* Prompt */
@@ -251,7 +241,7 @@ button:disabled{
   pointer-events:none;
 }
 
-/* SVG countries */
+/* SVG */
 .country{
   fill:#bdbdbd;
   stroke:#ffffff;
@@ -271,7 +261,7 @@ button:disabled{
   filter: saturate(.6);
 }
 
-/* Click helper rings (black dashed) */
+/* ======= CLICK HELP RINGS (Bahamas, Trinidad & Tobago) ======= */
 .hit-target{
   fill: rgba(0,0,0,0);       /* invisible fill, still clickable */
   pointer-events: all;       /* click anywhere inside the circle */
@@ -281,6 +271,7 @@ button:disabled{
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 3px 8px rgba(0,0,0,.35));
 }
+
 
 /* MODAL */
 .modal.hidden{ display:none; }
