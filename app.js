@@ -1,19 +1,56 @@
-// app.js — FULL FILE (with visible click rings for Bahamas + Trinidad & Tobago)
+/* app.js — FULL FILE
+   - Loads SVG map
+   - Region modes + auto-zoom
+   - Timed quiz, randomized order
+   - Correct = green, wrong = red flash + wrong sound
+   - Speech says country name (improved reliability)
+   - End modal + confetti + perfect-score jingle
+   - START button becomes START OVER while running/finished
+*/
 
-// ---------------- Data ----------------
+const SVG_CANDIDATES = ["americas.svg", "BlankMap-Americas.svg", "BlankMap-Americas.svg".toLowerCase()];
+
+// --------------------- DOM ---------------------
+const modebar = document.getElementById("modebar");
+const startBtn = document.getElementById("startBtn");
+
+const promptEl = document.getElementById("prompt");
+const subpromptEl = document.getElementById("subprompt");
+const mapStatusEl = document.getElementById("mapStatus");
+const mapContainer = document.getElementById("mapContainer");
+
+const timerEl = document.getElementById("timer");
+const percentEl = document.getElementById("percent");
+const progressEl = document.getElementById("progress");
+const resultsEl = document.getElementById("results");
+
+// End modal
+const endModal = document.getElementById("endModal");
+const closeModalBtn = document.getElementById("closeModalBtn");
+const finalPercentEl = document.getElementById("finalPercent");
+const finalTimeEl = document.getElementById("finalTime");
+const perfectBox = document.getElementById("perfectBox");
+const confettiCanvas = document.getElementById("confettiCanvas");
+
+// --------------------- DATA ---------------------
+// NOTE: IDs MUST match SVG element IDs (lowercase) for countries.
+// Your SVG has ids like: ca, us, mx, gt, ... and also bs, tt, pr, gf etc.
 const COUNTRIES = [
+  // North America
   { id: "ca", name: "Canada", region: "north" },
   { id: "us", name: "United States", region: "north" },
   { id: "mx", name: "Mexico", region: "north" },
 
+  // Central America
   { id: "bz", name: "Belize", region: "central" },
   { id: "gt", name: "Guatemala", region: "central" },
-  { id: "hn", name: "Honduras", region: "central" },
   { id: "sv", name: "El Salvador", region: "central" },
+  { id: "hn", name: "Honduras", region: "central" },
   { id: "ni", name: "Nicaragua", region: "central" },
   { id: "cr", name: "Costa Rica", region: "central" },
   { id: "pa", name: "Panama", region: "central" },
 
+  // South America
   { id: "co", name: "Colombia", region: "south" },
   { id: "ve", name: "Venezuela", region: "south" },
   { id: "gy", name: "Guyana", region: "south" },
@@ -27,6 +64,7 @@ const COUNTRIES = [
   { id: "ar", name: "Argentina", region: "south" },
   { id: "uy", name: "Uruguay", region: "south" },
 
+  // Caribbean (bigger / commonly assessed)
   { id: "bs", name: "Bahamas", region: "caribbean" },
   { id: "cu", name: "Cuba", region: "caribbean" },
   { id: "jm", name: "Jamaica", region: "caribbean" },
@@ -34,756 +72,718 @@ const COUNTRIES = [
   { id: "do", name: "Dominican Republic", region: "caribbean" },
   { id: "tt", name: "Trinidad and Tobago", region: "caribbean" },
 
+  // Territories (optional / included by request)
   { id: "pr", name: "Puerto Rico (USA)", region: "caribbean" },
-  { id: "gf", name: "French Guiana (France)", region: "south" }
+  { id: "gf", name: "French Guiana (France)", region: "south" },
 ];
 
-// If your SVG includes additional tiny islands you disabled previously, keep them here.
-const DISABLED_ISLANDS = ["bb", "gd", "lc", "vc", "ag", "kn", "dm"];
+const MODE_LABEL = {
+  all: "All Americas",
+  caribbean: "Caribbean",
+  central: "Central America",
+  south: "South America",
+};
 
-// Optional pronunciation overrides
-const PRONUNCIATION = {};
-
-// ---------------- DOM ----------------
-const mapContainer = document.getElementById("mapContainer");
-const mapStatus = document.getElementById("mapStatus");
-const promptEl = document.getElementById("prompt");
-const subpromptEl = document.getElementById("subprompt");
-const timerEl = document.getElementById("timer");
-const progressEl = document.getElementById("progress");
-const percentEl = document.getElementById("percent");
-const resultsEl = document.getElementById("results");
-const startBtn = document.getElementById("startBtn");
-const restartBtn = document.getElementById("restartBtn");
-
-const endModal = document.getElementById("endModal");
-const closeModalBtn = document.getElementById("closeModalBtn");
-const finalPercentEl = document.getElementById("finalPercent");
-const finalTimeEl = document.getElementById("finalTime");
-const perfectBox = document.getElementById("perfectBox");
-const confettiCanvas = document.getElementById("confettiCanvas");
-
-const modebar = document.getElementById("modebar");
-const modeButtons = modebar ? Array.from(modebar.querySelectorAll(".modebtn")) : [];
-
-// ---------------- State ----------------
+// --------------------- STATE ---------------------
 let svgEl = null;
-let originalViewBox = null;
+let countryEls = new Map(); // id -> SVG element
+let hitTargetsGroup = null;
 
-let currentMode = "all"; // all | caribbean | central | south
-let activeCountries = [];
+let mode = "all";
+let activeList = [];     // [{id,name,region}]
+let order = [];          // list of ids in randomized order
+let idx = 0;
 
-let order = [];
-let index = 0;
-let score = 0;
-let completed = new Set();
+let correct = 0;
+let wrong = 0;
+
 let running = false;
-
+let finished = false;
 let startTime = 0;
-let rafId = 0;
-let firstClickUsed = false;
+let raf = null;
 
-// id -> { rootEl, paintEls[] }
-const countryEls = new Map();
-const byId = new Map(COUNTRIES.map(c => [c.id, c]));
+let audioUnlocked = false;
+let audioCtx = null;
 
-// Keep references to hit targets so we can remove/rebuild if needed
-const hitTargets = new Map(); // id -> circleElement
+// Speech
+let chosenVoice = null;
+let voicesReady = false;
+let lastSpoken = "";
 
-// ---------------- Helpers ----------------
-function setStatus(text) {
-  mapStatus.textContent = text;
-}
+// Confetti
+let confettiRunning = false;
 
-function setPrompt(country) {
-  promptEl.textContent = country ? country.name : "—";
-  if (subpromptEl) subpromptEl.textContent = "";
-}
+// --------------------- UTIL ---------------------
+function $(sel, root=document){ return root.querySelector(sel); }
+function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
 
-function shuffle(arr) {
+function shuffle(arr){
   const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
 }
 
-function getActiveCountries() {
-  if (currentMode === "all") return COUNTRIES;
-  return COUNTRIES.filter(c => c.region === currentMode);
+function formatTime(ms){
+  const s = ms/1000;
+  return `${s.toFixed(1)}s`;
 }
 
-function setProgressAndPercent() {
-  const total = activeCountries.length || 0;
-  progressEl.textContent = `${Math.min(index, total)} / ${total}`;
-  const pct = total ? (score / total) * 100 : 0;
-  if (percentEl) percentEl.textContent = `${Math.round(pct)}%`;
+function setStatus(text){
+  mapStatusEl.textContent = text;
+  mapStatusEl.style.opacity = "1";
 }
 
-function tick() {
-  if (!running) return;
-  timerEl.textContent = `${((performance.now() - startTime) / 1000).toFixed(1)}s`;
-  rafId = requestAnimationFrame(tick);
+function hideStatusSoon(){
+  // subtle fade after a moment
+  setTimeout(()=>{ mapStatusEl.style.opacity = "0.9"; }, 1200);
+  setTimeout(()=>{ mapStatusEl.style.opacity = "0.75"; }, 2200);
 }
 
-function stopTimer() {
-  running = false;
-  cancelAnimationFrame(rafId);
+// --------------------- BUTTON STATE (START <-> START OVER) ---------------------
+function setStartIdle(){
+  startBtn.textContent = "START";
+  startBtn.classList.add("primary");
+  startBtn.classList.remove("danger");
 }
 
-// SVG targeting
-function getPaintTargets(rootEl) {
-  if (!rootEl) return [];
-  const tag = (rootEl.tagName || "").toLowerCase();
-  if (tag === "g") {
-    const inner = rootEl.querySelectorAll("path, polygon, rect, circle, ellipse, polyline, line");
-    return inner.length ? Array.from(inner) : [rootEl];
-  }
-  return [rootEl];
+function setStartOver(){
+  startBtn.textContent = "START OVER";
+  startBtn.classList.remove("primary");
+  startBtn.classList.add("danger");
 }
 
-function addClassToTargets(id, className) {
-  const entry = countryEls.get(id);
-  if (!entry) return;
-  for (const el of entry.paintEls) el.classList.add(className);
-}
-
-function removeClassFromTargets(id, className) {
-  const entry = countryEls.get(id);
-  if (!entry) return;
-  for (const el of entry.paintEls) el.classList.remove(className);
-}
-
-function resetClasses() {
-  for (const { id } of COUNTRIES) {
-    removeClassFromTargets(id, "wrong");
-    removeClassFromTargets(id, "correct");
-    removeClassFromTargets(id, "locked");
-    addClassToTargets(id, "country");
+// --------------------- AUDIO ---------------------
+function ensureAudio(){
+  if(audioUnlocked) return;
+  try{
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // tiny silent beep to unlock
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    g.gain.value = 0.0001;
+    o.connect(g).connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.02);
+    audioUnlocked = true;
+  }catch(e){
+    audioUnlocked = true; // degrade gracefully
   }
 }
 
-function markWrong(id) {
-  addClassToTargets(id, "wrong");
-  setTimeout(() => removeClassFromTargets(id, "wrong"), 1000);
+function beepWrong(){
+  if(!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = "square";
+  o.frequency.setValueAtTime(170, now);
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(now);
+  o.stop(now + 0.27);
 }
 
-function markCorrect(id) {
-  addClassToTargets(id, "correct");
-  addClassToTargets(id, "locked");
-}
-
-// ---------------- Audio ----------------
-let audioCtx = null;
-
-function ensureAudio() {
-  if (!(window.AudioContext || window.webkitAudioContext)) return;
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === "suspended") audioCtx.resume();
-}
-
-function playWrongBeep() {
-  ensureAudio();
-  if (!audioCtx) return;
-
-  const t = audioCtx.currentTime;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-
-  osc.type = "square";
-  osc.frequency.setValueAtTime(240, t);
-  osc.frequency.exponentialRampToValueAtTime(140, t + 0.12);
-
-  gain.gain.setValueAtTime(0.0001, t);
-  gain.gain.exponentialRampToValueAtTime(0.18, t + 0.01);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.start(t);
-  osc.stop(t + 0.20);
-}
-
-function playFanfare() {
-  ensureAudio();
-  if (!audioCtx) return;
-
-  const t0 = audioCtx.currentTime + 0.02;
-  const notes = [523.25, 659.25, 783.99, 1046.5];
-
-  function note(freq, start, dur, vol = 0.20) {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = "triangle";
-    osc.frequency.setValueAtTime(freq, start);
-
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(vol, start + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start(start);
-    osc.stop(start + dur + 0.02);
-  }
-
-  notes.forEach((f, i) => note(f, t0 + i * 0.14, 0.18, 0.22));
-  note(1567.98, t0 + 0.60, 0.35, 0.18);
-}
-
-// ---------------- Confetti ----------------
-let confettiRAF = 0;
-let confettiActive = false;
-
-function stopConfetti() {
-  confettiActive = false;
-  cancelAnimationFrame(confettiRAF);
-  confettiRAF = 0;
-}
-
-function startConfetti(canvas) {
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-
-  function resize() {
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = Math.floor(rect.width * dpr);
-    canvas.height = Math.floor(rect.height * dpr);
-  }
-  resize();
-
-  const colors = ["#ffffff", "#7aa7ff", "#35d07f", "#ff5c75", "#f7d154"];
-  const N = 180;
-
-  const parts = Array.from({ length: N }, () => ({
-    x: Math.random() * canvas.width,
-    y: -Math.random() * canvas.height,
-    vx: (Math.random() - 0.5) * 1.3 * dpr,
-    vy: (2.0 + Math.random() * 3.6) * dpr,
-    r: (2 + Math.random() * 4) * dpr,
-    a: Math.random() * Math.PI * 2,
-    va: (Math.random() - 0.5) * 0.25,
-    c: colors[(Math.random() * colors.length) | 0],
-    wob: (Math.random() * 0.8 + 0.2) * dpr
-  }));
-
-  confettiActive = true;
-
-  function frame() {
-    if (!confettiActive) return;
-    resize();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    for (const p of parts) {
-      p.x += p.vx + Math.sin(p.a) * p.wob;
-      p.y += p.vy;
-      p.a += p.va;
-
-      if (p.y > canvas.height + 20 * dpr) {
-        p.y = -20 * dpr;
-        p.x = Math.random() * canvas.width;
-      }
-      if (p.x < -20 * dpr) p.x = canvas.width + 20 * dpr;
-      if (p.x > canvas.width + 20 * dpr) p.x = -20 * dpr;
-
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.a);
-      ctx.fillStyle = p.c;
-      ctx.globalAlpha = 0.95;
-      ctx.fillRect(-p.r, -p.r * 0.6, p.r * 2.2, p.r * 1.2);
-      ctx.restore();
-    }
-
-    confettiRAF = requestAnimationFrame(frame);
-  }
-
-  frame();
-}
-
-// ---------------- End modal ----------------
-function openEndModal({ percentText, timeText, perfect }) {
-  if (finalPercentEl) finalPercentEl.textContent = percentText;
-  if (finalTimeEl) finalTimeEl.textContent = timeText;
-
-  if (perfect) {
-    if (perfectBox) perfectBox.classList.remove("hidden");
-    if (confettiCanvas) startConfetti(confettiCanvas);
-    playFanfare();
-  } else {
-    if (perfectBox) perfectBox.classList.add("hidden");
-    stopConfetti();
-  }
-
-  endModal.classList.remove("hidden");
-}
-
-function closeEndModal() {
-  endModal.classList.add("hidden");
-  stopConfetti();
-}
-
-// ---------------- Speech ----------------
-let selectedVoice = null;
-
-function pickVoice() {
-  if (!("speechSynthesis" in window)) return;
-  const voices = window.speechSynthesis.getVoices();
-  if (!voices.length) return;
-
-  const isEnglish = (v) => /^en(-|_)?/i.test(v.lang || "");
-  const preferredNameMatchers = [
-    /google (us )?english/i,
-    /google english/i,
-    /samantha/i,
-    /alex/i,
-  ];
-
-  for (const rx of preferredNameMatchers) {
-    const v = voices.find(v => isEnglish(v) && rx.test(v.name || ""));
-    if (v) { selectedVoice = v; return; }
-  }
-
-  selectedVoice =
-    voices.find(v => (v.lang || "").toLowerCase() === "en-us") ||
-    voices.find(isEnglish) ||
-    voices[0];
-}
-
-if ("speechSynthesis" in window) {
-  pickVoice();
-  window.speechSynthesis.onvoiceschanged = () => pickVoice();
-}
-
-function speak(text) {
-  if (!("speechSynthesis" in window)) return;
-  const synth = window.speechSynthesis;
-
-  if (synth.speaking || synth.pending) synth.cancel();
-
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = "en-US";
-  if (selectedVoice) u.voice = selectedVoice;
-  u.rate = 0.95;
-  u.pitch = 1.05;
-  u.volume = 1.0;
-
-  let started = false;
-  u.onstart = () => { started = true; };
-
-  setTimeout(() => { try { synth.speak(u); } catch (_) {} }, 40);
-
-  setTimeout(() => {
-    if (!started && !synth.speaking) {
-      try {
-        synth.cancel();
-        const u2 = new SpeechSynthesisUtterance(text);
-        u2.lang = "en-US";
-        if (selectedVoice) u2.voice = selectedVoice;
-        u2.rate = 0.95;
-        u2.pitch = 1.05;
-        u2.volume = 1.0;
-        synth.speak(u2);
-      } catch (_) {}
-    }
-  }, 220);
-}
-
-// ---------------- Zoom (robust) ----------------
-function getBBoxInSvgViewBoxCoords(el) {
-  if (!svgEl || !el || typeof el.getBBox !== "function") return null;
-
-  let bb;
-  try { bb = el.getBBox(); } catch { return null; }
-
-  const elemM = el.getScreenCTM?.();
-  const svgM = svgEl.getScreenCTM?.();
-  if (!elemM || !svgM) return null;
-
-  let invSvg;
-  try { invSvg = svgM.inverse(); } catch { return null; }
-
-  const toSvgPt = (x, y) => {
-    const sx = elemM.a * x + elemM.c * y + elemM.e;
-    const sy = elemM.b * x + elemM.d * y + elemM.f;
-    const vx = invSvg.a * sx + invSvg.c * sy + invSvg.e;
-    const vy = invSvg.b * sx + invSvg.d * sy + invSvg.f;
-    return { x: vx, y: vy };
-  };
-
-  const p1 = toSvgPt(bb.x, bb.y);
-  const p2 = toSvgPt(bb.x + bb.width, bb.y);
-  const p3 = toSvgPt(bb.x, bb.y + bb.height);
-  const p4 = toSvgPt(bb.x + bb.width, bb.y + bb.height);
-
-  const xs = [p1.x, p2.x, p3.x, p4.x];
-  const ys = [p1.y, p2.y, p3.y, p4.y];
-
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-
-  if (![minX, maxX, minY, maxY].every(Number.isFinite)) return null;
-
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
-
-function unionBBox(a, b) {
-  if (!a) return b;
-  if (!b) return a;
-  const x1 = Math.min(a.x, b.x);
-  const y1 = Math.min(a.y, b.y);
-  const x2 = Math.max(a.x + a.w, b.x + b.w);
-  const y2 = Math.max(a.y + a.h, b.y + b.h);
-  return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-}
-
-function setViewBox(vb) {
-  if (!svgEl) return;
-  svgEl.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
-}
-
-function restoreViewBox() {
-  if (!svgEl || !originalViewBox) return;
-  svgEl.setAttribute("viewBox", originalViewBox);
-}
-
-function zoomToActiveCountries() {
-  if (!svgEl) return;
-
-  if (currentMode === "all") {
-    restoreViewBox();
-    return;
-  }
-
-  let bbox = null;
-
-  for (const c of activeCountries) {
-    const entry = countryEls.get(c.id);
-    if (!entry) continue;
-
-    let b = getBBoxInSvgViewBoxCoords(entry.rootEl);
-
-    if (!b) {
-      for (const pe of entry.paintEls) {
-        b = getBBoxInSvgViewBoxCoords(pe);
-        if (b) break;
-      }
-    }
-
-    if (b && b.w > 0 && b.h > 0) bbox = unionBBox(bbox, b);
-  }
-
-  if (!bbox || !Number.isFinite(bbox.w) || !Number.isFinite(bbox.h) || bbox.w <= 0 || bbox.h <= 0) {
-    restoreViewBox();
-    return;
-  }
-
-  const padPct =
-    currentMode === "caribbean" ? 0.06 :
-    currentMode === "central" ? 0.08 :
-    0.10;
-
-  const padX = bbox.w * padPct;
-  const padY = bbox.h * padPct;
-
-  setViewBox({
-    x: bbox.x - padX,
-    y: bbox.y - padY,
-    w: bbox.w + padX * 2,
-    h: bbox.h + padY * 2
+function jinglePerfect(){
+  if(!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+  notes.forEach((f, i) => {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(f, now + i*0.11);
+    g.gain.setValueAtTime(0.0001, now + i*0.11);
+    g.gain.exponentialRampToValueAtTime(0.10, now + i*0.11 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + i*0.11 + 0.20);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(now + i*0.11);
+    o.stop(now + i*0.11 + 0.22);
   });
 }
 
-function zoomNextFrame() {
-  requestAnimationFrame(() => requestAnimationFrame(zoomToActiveCountries));
+// --------------------- SPEECH (less robotic + more reliable) ---------------------
+function loadVoices(){
+  const vs = window.speechSynthesis?.getVoices?.() || [];
+  voicesReady = vs.length > 0;
+  return vs;
 }
 
-// ---------------- Click helper rings ----------------
-function removeHitTarget(id) {
-  const el = hitTargets.get(id);
-  if (el && el.parentNode) el.parentNode.removeChild(el);
-  hitTargets.delete(id);
+function pickVoice(){
+  if(!window.speechSynthesis) return;
+  const vs = loadVoices();
+  if(!vs.length) return;
+
+  // Prefer more natural English voices (Chrome/Mac often has these)
+  const preferred = vs.find(v =>
+    /Google US English/i.test(v.name) ||
+    /Samantha/i.test(v.name) ||
+    (/English/i.test(v.lang) && /premium|enhanced|natural/i.test(v.name))
+  );
+
+  const fallback = vs.find(v => /^en/i.test(v.lang)) || vs[0];
+  chosenVoice = preferred || fallback;
 }
 
-function addHitCircleForCountry(id, radius) {
-  if (!svgEl) return;
-  const entry = countryEls.get(id);
-  if (!entry) return;
+if(window.speechSynthesis){
+  window.speechSynthesis.onvoiceschanged = () => {
+    loadVoices();
+    pickVoice();
+  };
+  // attempt early load
+  setTimeout(() => { loadVoices(); pickVoice(); }, 250);
+}
 
-  // Remove existing ring for this id (if any)
-  removeHitTarget(id);
+function speak(text){
+  if(!window.speechSynthesis) return;
+  if(!text) return;
 
-  // Get bbox in SVG viewBox coordinates (robust even if the country/group is transformed)
-  let b = getBBoxInSvgViewBoxCoords(entry.rootEl);
-  if (!b) {
-    for (const pe of entry.paintEls) {
-      b = getBBoxInSvgViewBoxCoords(pe);
-      if (b) break;
+  // avoid repeating instantly
+  if(text === lastSpoken) return;
+  lastSpoken = text;
+
+  // cancel any stuck utterance
+  window.speechSynthesis.cancel();
+
+  const u = new SpeechSynthesisUtterance(text);
+
+  if(chosenVoice) u.voice = chosenVoice;
+
+  // "less robotic" defaults
+  u.rate = 0.98;
+  u.pitch = 1.05;
+  u.volume = 1;
+
+  // Safari/Chrome quirk protection: speak on next tick
+  setTimeout(() => {
+    try{
+      window.speechSynthesis.speak(u);
+
+      // reliability retry: if it doesn't start (rare), try once more
+      setTimeout(() => {
+        if(!window.speechSynthesis.speaking && running && !finished){
+          window.speechSynthesis.cancel();
+          const u2 = new SpeechSynthesisUtterance(text);
+          if(chosenVoice) u2.voice = chosenVoice;
+          u2.rate = 0.98; u2.pitch = 1.05; u2.volume = 1;
+          window.speechSynthesis.speak(u2);
+        }
+      }, 220);
+    }catch(e){}
+  }, 40);
+}
+
+// --------------------- SVG LOADING ---------------------
+async function fetchFirstAvailable(){
+  for(const p of SVG_CANDIDATES){
+    try{
+      const res = await fetch(p, { cache: "no-cache" });
+      if(res.ok) return await res.text();
+    }catch(e){}
+  }
+  throw new Error("Could not load SVG. Make sure americas.svg is in your repo root.");
+}
+
+function injectOceanStyle(svg){
+  // Ensure ocean/lakes are blue even if SVG has internal white fill
+  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  style.textContent = `
+    .ocean{ fill: var(--ocean) !important; stroke: none !important; }
+    .lake{ fill: var(--ocean) !important; stroke: none !important; }
+  `;
+  svg.insertBefore(style, svg.firstChild);
+}
+
+function collectCountries(){
+  countryEls.clear();
+
+  // Elements are typically paths with ids like 'us', 'ca', etc.
+  for(const c of COUNTRIES){
+    const el = svgEl.querySelector(`#${CSS.escape(c.id)}`);
+    if(el){
+      countryEls.set(c.id, el);
+      el.classList.add("country");
+      el.style.cursor = "pointer";
+      el.dataset.cid = c.id;
     }
   }
-  if (!b || !Number.isFinite(b.w) || !Number.isFinite(b.h) || b.w <= 0 || b.h <= 0) return;
+}
 
-  const cx = b.x + b.w / 2;
-  const cy = b.y + b.h / 2;
+function resetClasses(){
+  for(const el of countryEls.values()){
+    el.classList.remove("correct", "wrong", "locked");
+  }
+}
 
-  const ns = "http://www.w3.org/2000/svg";
-  const circle = document.createElementNS(ns, "circle");
-  circle.setAttribute("cx", String(cx));
-  circle.setAttribute("cy", String(cy));
-  circle.setAttribute("r", String(radius));
-  circle.classList.add("hit-target");
+function setAllLocked(locked){
+  for(const el of countryEls.values()){
+    if(locked) el.classList.add("locked");
+    else el.classList.remove("locked");
+  }
+}
 
-  circle.addEventListener("click", (e) => {
-    e.preventDefault();
+// --------------------- HIT RINGS ---------------------
+function ensureHitTargetsGroup(){
+  if(hitTargetsGroup) return hitTargetsGroup;
+  hitTargetsGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  hitTargetsGroup.setAttribute("id", "hit_targets");
+  svgEl.appendChild(hitTargetsGroup);
+  return hitTargetsGroup;
+}
+
+function addHitCircleForCountry(id, radius){
+  const el = countryEls.get(id);
+  if(!el) return;
+
+  const box = el.getBBox();
+  const cx = box.x + box.width/2;
+  const cy = box.y + box.height/2;
+
+  const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  c.setAttribute("cx", cx);
+  c.setAttribute("cy", cy);
+  c.setAttribute("r", radius);
+  c.classList.add("hit-target");
+  c.dataset.cid = id;
+
+  // ring click should behave as clicking the country
+  c.addEventListener("click", (e) => {
     e.stopPropagation();
     handleCountryClick(id);
   });
 
-  // Put on top
-  svgEl.appendChild(circle);
-  hitTargets.set(id, circle);
+  ensureHitTargetsGroup().appendChild(c);
 }
 
-function buildClickHelperRings() {
-  // Only add rings if those shapes exist in the SVG
-  if (countryEls.has("bs")) addHitCircleForCountry("bs", 45); // Bahamas (smaller version)
-  if (countryEls.has("tt")) addHitCircleForCountry("tt", 40); // Trinidad & Tobago
+function buildClickHelperRings(){
+  if(!svgEl) return;
+  // clear old rings
+  if(hitTargetsGroup) hitTargetsGroup.innerHTML = "";
+
+  // Bahamas ring slightly smaller to avoid overlapping Cuba
+  addHitCircleForCountry("bs", 45);
+
+  // Trinidad and Tobago
+  addHitCircleForCountry("tt", 40);
 }
 
-// ---------------- Quiz flow ----------------
-function nextPrompt() {
-  if (index >= activeCountries.length) {
-    stopTimer();
-    setPrompt(null);
-    setStatus("Finished.");
+// --------------------- REGION LISTS + ZOOM ---------------------
+function getActiveCountries(){
+  if(mode === "all") return COUNTRIES;
+  if(mode === "caribbean") return COUNTRIES.filter(c => c.region === "caribbean");
+  if(mode === "central") return COUNTRIES.filter(c => c.region === "central");
+  if(mode === "south") return COUNTRIES.filter(c => c.region === "south");
+  return COUNTRIES;
+}
 
-    const elapsed = (performance.now() - startTime) / 1000;
-    const pct = activeCountries.length ? (score / activeCountries.length) * 100 : 0;
-    const perfect = score === activeCountries.length && activeCountries.length > 0;
+function unionBBox(elements){
+  let u = null;
+  for(const el of elements){
+    try{
+      const b = el.getBBox();
+      if(!u){
+        u = { x:b.x, y:b.y, x2:b.x+b.width, y2:b.y+b.height };
+      }else{
+        u.x = Math.min(u.x, b.x);
+        u.y = Math.min(u.y, b.y);
+        u.x2 = Math.max(u.x2, b.x+b.width);
+        u.y2 = Math.max(u.y2, b.y+b.height);
+      }
+    }catch(e){}
+  }
+  if(!u) return null;
+  return { x:u.x, y:u.y, width:u.x2-u.x, height:u.y2-u.y };
+}
 
-    resultsEl.classList.remove("muted");
-    resultsEl.innerHTML = `
-      <div><strong>Score:</strong> ${score} / ${activeCountries.length} (${pct.toFixed(1)}%)</div>
-      <div><strong>Time:</strong> ${elapsed.toFixed(1)}s</div>
-    `;
+function setViewBoxForRegion(){
+  if(!svgEl) return;
+  const list = getActiveCountries().map(c => c.id);
+  const els = list.map(id => countryEls.get(id)).filter(Boolean);
 
-    openEndModal({
-      percentText: `${pct.toFixed(1)}%`,
-      timeText: `${elapsed.toFixed(1)}s`,
-      perfect
-    });
+  // If Caribbean: include rings so the view feels right
+  if(mode === "caribbean" && hitTargetsGroup){
+    // include circles for bbox
+    Array.from(hitTargetsGroup.querySelectorAll("circle")).forEach(c => els.push(c));
+  }
 
-    setProgressAndPercent();
+  const b = unionBBox(els);
+  if(!b) return;
+
+  // padding to keep edges visible
+  const pad = Math.max(b.width, b.height) * 0.12;
+  const x = b.x - pad;
+  const y = b.y - pad;
+  const w = b.width + pad*2;
+  const h = b.height + pad*2;
+
+  svgEl.setAttribute("viewBox", `${x} ${y} ${w} ${h}`);
+}
+
+function zoomNextFrame(){
+  requestAnimationFrame(() => setViewBoxForRegion());
+}
+
+// --------------------- GAME FLOW ---------------------
+function updateHUD(){
+  const total = order.length || 0;
+  progressEl.textContent = `${correct} / ${total}`;
+
+  const attempts = correct + wrong;
+  const pct = attempts > 0 ? Math.round((correct/attempts)*100) : 0;
+  percentEl.textContent = `${pct}%`;
+}
+
+function tick(){
+  if(!running) return;
+  const elapsed = performance.now() - startTime;
+  timerEl.textContent = formatTime(elapsed);
+  raf = requestAnimationFrame(tick);
+}
+
+function setPrompt(text){
+  promptEl.textContent = text || "—";
+}
+
+function nextPrompt(){
+  if(idx >= order.length){
+    finishGame();
     return;
   }
-
-  firstClickUsed = false;
-  const country = byId.get(order[index]);
-  setPrompt(country);
-
-  const spoken = PRONUNCIATION[country.id] || country.name;
-  speak(spoken);
-
-  setStatus("Click the correct country on the map.");
+  const id = order[idx];
+  const c = activeList.find(x => x.id === id);
+  const name = c ? c.name : id.toUpperCase();
+  setPrompt(name);
+  subpromptEl.textContent = ""; // keep clean
+  speak(name);
 }
 
-function handleCountryClick(id) {
-  if (!running) return;
-  if (completed.has(id)) return;
-
-  const targetId = order[index];
-
-  if (id === targetId) {
-    if (!firstClickUsed) score++;
-    completed.add(id);
-    markCorrect(id);
-
-    index++;
-    setProgressAndPercent();
-    nextPrompt();
-  } else {
-    if (!firstClickUsed) firstClickUsed = true;
-    playWrongBeep();
-    markWrong(id);
-    setStatus("Nope — try again.");
-  }
-}
-
-// ---------------- Modes ----------------
-function setMode(mode) {
-  if (running) return;
-
-  currentMode = mode;
-  activeCountries = getActiveCountries();
-
-  modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
-
-  completed.clear();
-  score = 0;
-  index = 0;
-
-  timerEl.textContent = "0.0s";
-  resultsEl.classList.add("muted");
-  resultsEl.textContent = "Press Start to begin.";
-
-  setPrompt(null);
-  setStatus("Ready.");
-  resetClasses();
-  closeEndModal();
-
-  setProgressAndPercent();
-  zoomNextFrame();
-}
-
-modeButtons.forEach(btn => {
-  btn.addEventListener("click", () => setMode(btn.dataset.mode));
-});
-
-// ---------------- Load SVG ----------------
-async function loadSVG() {
-  try {
-    setStatus("Loading map…");
-    const res = await fetch("americas.svg", { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    mapContainer.innerHTML = await res.text();
-
-    svgEl = mapContainer.querySelector("svg");
-    if (!svgEl) throw new Error("No <svg> found in americas.svg");
-
-    originalViewBox = svgEl.getAttribute("viewBox");
-    if (!originalViewBox) {
-      const w = Number(svgEl.getAttribute("width")) || 2752.766;
-      const h = Number(svgEl.getAttribute("height")) || 1537.631;
-      originalViewBox = `0 0 ${w} ${h}`;
-      svgEl.setAttribute("viewBox", originalViewBox);
-    }
-
-    // Wire up countries by id
-    for (const { id } of COUNTRIES) {
-      const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
-      if (!rootEl) continue;
-
-      const paintEls = getPaintTargets(rootEl);
-      countryEls.set(id, { rootEl, paintEls });
-
-      for (const el of paintEls) el.classList.add("country");
-
-      const clickHandler = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        handleCountryClick(id);
-      };
-
-      rootEl.addEventListener("click", clickHandler);
-      for (const el of paintEls) el.addEventListener("click", clickHandler);
-    }
-
-    // Disable small islands (optional)
-    for (const id of DISABLED_ISLANDS) {
-      const rootEl = mapContainer.querySelector(`#${CSS.escape(id)}`);
-      if (!rootEl) continue;
-      const paintEls = getPaintTargets(rootEl);
-      for (const el of paintEls) {
-        el.classList.add("disabled-island");
-        el.style.pointerEvents = "none";
-      }
-      rootEl.style.pointerEvents = "none";
-    }
-
-    // Add helper click rings for tiny targets
-    buildClickHelperRings();
-
-    activeCountries = getActiveCountries();
-
-    setStatus("Map loaded.");
-    setPrompt(null);
-    resetClasses();
-    setProgressAndPercent();
-    zoomNextFrame();
-  } catch (err) {
-    console.error(err);
-    setStatus('Failed to load "americas.svg"');
-    resultsEl.classList.remove("muted");
-    resultsEl.textContent = 'Could not load americas.svg. Make sure it is in the repo root.';
-  }
-}
-
-// ---------------- Reset ----------------
-function resetUI() {
-  stopTimer();
-  running = false;
-
-  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-
-  score = 0;
-  index = 0;
-  firstClickUsed = false;
-  completed.clear();
-
-  resultsEl.classList.add("muted");
-  resultsEl.textContent = "Press Start to begin.";
-  timerEl.textContent = "0.0s";
-
-  startBtn.disabled = false;
-  restartBtn.disabled = true;
-
-  setPrompt(null);
-  setStatus("Ready.");
-  activeCountries = getActiveCountries();
-
-  resetClasses();
-  closeEndModal();
-
-  setProgressAndPercent();
-  zoomNextFrame();
-}
-
-// ---------------- Buttons ----------------
-startBtn.addEventListener("click", () => {
+function startGameFresh(){
   ensureAudio();
   pickVoice();
   closeEndModal();
 
-  activeCountries = getActiveCountries();
-  zoomNextFrame();
+  activeList = getActiveCountries().filter(c => countryEls.has(c.id));
 
-  const available = activeCountries.filter(c => countryEls.has(c.id));
-  order = shuffle(available.map(c => c.id));
+  // Build randomized order (only those present in SVG)
+  order = shuffle(activeList.map(c => c.id));
 
-  index = 0;
-  score = 0;
-  completed.clear();
-  firstClickUsed = false;
+  idx = 0;
+  correct = 0;
+  wrong = 0;
+
+  resetClasses();
+  setAllLocked(false);
 
   resultsEl.classList.add("muted");
   resultsEl.textContent = "Quiz running…";
 
-  startBtn.disabled = true;
-  restartBtn.disabled = false;
-
-  resetClasses();
+  running = true;
+  finished = false;
 
   startTime = performance.now();
-  running = true;
+  timerEl.textContent = "0.0s";
+
+  updateHUD();
+  nextPrompt();
+
+  if(raf) cancelAnimationFrame(raf);
   tick();
 
-  setProgressAndPercent();
-  nextPrompt();
+  // button becomes START OVER while active
+  setStartOver();
+}
+
+function startOverNow(){
+  // hard reset + immediate start
+  resetUIOnly();
+  startGameFresh();
+}
+
+function resetUIOnly(){
+  running = false;
+  finished = false;
+  if(raf) cancelAnimationFrame(raf);
+  raf = null;
+
+  try{ window.speechSynthesis?.cancel?.(); }catch(e){}
+
+  idx = 0;
+  correct = 0;
+  wrong = 0;
+  order = [];
+
+  resetClasses();
+  setAllLocked(false);
+
+  timerEl.textContent = "0.0s";
+  percentEl.textContent = "0%";
+  progressEl.textContent = "0 / 0";
+  setPrompt("—");
+  subpromptEl.textContent = "";
+
+  resultsEl.classList.add("muted");
+  resultsEl.textContent = "Press Start to begin.";
+
+  // back to START
+  setStartIdle();
+}
+
+function finishGame(){
+  running = false;
+  finished = true;
+  if(raf) cancelAnimationFrame(raf);
+
+  // Final stats
+  const elapsed = performance.now() - startTime;
+  const attempts = correct + wrong;
+  const pct = attempts > 0 ? Math.round((correct/attempts)*100) : 0;
+
+  resultsEl.classList.remove("muted");
+  resultsEl.textContent = `Score: ${correct} / ${order.length} (${pct}%)\nTime: ${formatTime(elapsed)}`;
+
+  // modal
+  finalPercentEl.textContent = `${pct}%`;
+  finalTimeEl.textContent = formatTime(elapsed);
+
+  const perfect = (pct === 100) && (correct === order.length);
+  if(perfect){
+    perfectBox.classList.remove("hidden");
+    ensureAudio();
+    jinglePerfect();
+    startConfetti();
+  }else{
+    perfectBox.classList.add("hidden");
+    stopConfetti();
+  }
+
+  openEndModal();
+
+  // keep button as START OVER
+  setStartOver();
+}
+
+// --------------------- CLICK HANDLING ---------------------
+function flashWrong(el){
+  el.classList.add("wrong");
+  // longer red (kids notice)
+  setTimeout(() => el.classList.remove("wrong"), 900);
+}
+
+function markCorrect(el){
+  el.classList.add("correct");
+}
+
+function handleCountryClick(id){
+  if(!running || finished) return;
+  const target = order[idx];
+  const el = countryEls.get(id);
+  if(!el) return;
+
+  if(id === target){
+    correct++;
+    markCorrect(el);
+    idx++;
+    updateHUD();
+    nextPrompt();
+  }else{
+    wrong++;
+    updateHUD();
+    flashWrong(el);
+    ensureAudio();
+    beepWrong();
+  }
+}
+
+// --------------------- MODAL ---------------------
+function openEndModal(){
+  if(!endModal) return;
+  endModal.classList.remove("hidden");
+}
+
+function closeEndModal(){
+  if(!endModal) return;
+  endModal.classList.add("hidden");
+}
+
+// --------------------- CONFETTI ---------------------
+function resizeConfetti(){
+  if(!confettiCanvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = confettiCanvas.getBoundingClientRect();
+  confettiCanvas.width = Math.floor(rect.width * dpr);
+  confettiCanvas.height = Math.floor(rect.height * dpr);
+}
+
+let confetti = [];
+function startConfetti(){
+  if(!confettiCanvas) return;
+  resizeConfetti();
+  confettiRunning = true;
+  confetti = [];
+  const w = confettiCanvas.width;
+  const h = confettiCanvas.height;
+
+  for(let i=0;i<160;i++){
+    confetti.push({
+      x: Math.random()*w,
+      y: -Math.random()*h,
+      vx: (Math.random()-0.5)*1.2,
+      vy: 1.2 + Math.random()*2.2,
+      r: 2 + Math.random()*4,
+      a: Math.random()*Math.PI*2,
+      va: (Math.random()-0.5)*0.25
+    });
+  }
+  requestAnimationFrame(drawConfetti);
+}
+
+function stopConfetti(){
+  confettiRunning = false;
+}
+
+function drawConfetti(){
+  if(!confettiRunning || !confettiCanvas) return;
+  const ctx = confettiCanvas.getContext("2d");
+  if(!ctx) return;
+  const w = confettiCanvas.width;
+  const h = confettiCanvas.height;
+
+  ctx.clearRect(0,0,w,h);
+
+  // no custom colors per tool rules? (This is not a chart; it's canvas art.)
+  // We'll use grayscale/white-ish for subtlety.
+  ctx.fillStyle = "rgba(255,255,255,.85)";
+
+  for(const p of confetti){
+    p.x += p.vx;
+    p.y += p.vy;
+    p.a += p.va;
+
+    if(p.y > h + 20){
+      p.y = -20;
+      p.x = Math.random()*w;
+    }
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.a);
+    ctx.fillRect(-p.r, -p.r/2, p.r*2, p.r);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(drawConfetti);
+}
+
+// --------------------- INIT ---------------------
+function bindModeButtons(){
+  if(!modebar) return;
+  modebar.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-mode]");
+    if(!btn) return;
+    const m = btn.dataset.mode;
+    if(!m) return;
+
+    // Don't change modes mid-run — keep it simple and predictable.
+    if(running){
+      resultsEl.classList.remove("muted");
+      resultsEl.textContent = "Finish or press START OVER to change modes.";
+      return;
+    }
+
+    mode = m;
+    Array.from(modebar.querySelectorAll(".modebtn")).forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+
+    // zoom to region
+    zoomNextFrame();
+
+    // Rebuild rings (Bahamas/TT) so they remain visible/clickable in all modes
+    buildClickHelperRings();
+
+    updateHUD();
+    setStatus(`Mode: ${MODE_LABEL[mode] || mode}`);
+    hideStatusSoon();
+  });
+}
+
+function bindButtons(){
+  // START / START OVER (same button)
+  startBtn.addEventListener("click", () => {
+    ensureAudio(); // unlock for speech + beeps
+    closeEndModal();
+
+    if(running || finished){
+      // immediate restart
+      startOverNow();
+      return;
+    }
+    // start new
+    startGameFresh();
+  });
+
+  closeModalBtn?.addEventListener("click", () => {
+    closeEndModal();
+  });
+
+  // click outside card to close
+  endModal?.addEventListener("click", (e) => {
+    if(e.target && e.target.classList && e.target.classList.contains("modal-backdrop")){
+      closeEndModal();
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if(confettiRunning) resizeConfetti();
+  });
+}
+
+function bindCountryClicks(){
+  for(const [id, el] of countryEls.entries()){
+    el.addEventListener("click", () => handleCountryClick(id));
+  }
+}
+
+async function init(){
+  setStartIdle();
+  setStatus("Loading map…");
+
+  const svgText = await fetchFirstAvailable();
+  mapContainer.innerHTML = svgText;
+
+  svgEl = mapContainer.querySelector("svg");
+  if(!svgEl) throw new Error("SVG not found in file.");
+
+  // helpful: make sure it scales nicely
+  svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+  injectOceanStyle(svgEl);
+  collectCountries();
+  buildClickHelperRings();
+  bindCountryClicks();
+
+  bindModeButtons();
+  bindButtons();
+
+  // initial zoom
+  zoomNextFrame();
+
+  // initial hud
+  activeList = getActiveCountries().filter(c => countryEls.has(c.id));
+  order = activeList.map(c => c.id);
+  correct = 0; wrong = 0;
+  updateHUD();
+
+  setStatus("Map loaded.");
+  hideStatusSoon();
+}
+
+init().catch(err => {
+  console.error(err);
+  setStatus("Error loading map. Check console + file name.");
+  resultsEl.classList.remove("muted");
+  resultsEl.textContent = "Could not load the SVG map. Make sure 'americas.svg' is in the repo root.";
 });
-
-restartBtn.addEventListener("click", resetUI);
-
-closeModalBtn.addEventListener("click", closeEndModal);
-endModal.addEventListener("click", (e) => {
-  if (e.target.classList && e.target.classList.contains("modal-backdrop")) closeEndModal();
-});
-
-// Init
-resetUI();
-loadSVG();
-setMode("all");
