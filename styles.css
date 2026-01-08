@@ -330,3 +330,42 @@ button:disabled{
   border-radius: 16px;
   border: 1px dashed rgba(255,255,255,.10);
 }
+
+/* === Bigger + more solid green START button === */
+#startBtn{
+  width: 100%;
+  min-height: 96px;              /* ~2x taller */
+  padding: 22px 18px;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+
+  background: #16a34a;           /* solid green */
+  border: 2px solid #0f7a33;
+  color: #ffffff;
+
+  border-radius: 18px;
+  box-shadow:
+    0 10px 26px rgba(0,0,0,.35),
+    0 0 0 4px rgba(22,163,74,.22);
+}
+
+#startBtn:hover{
+  filter: brightness(1.06);
+  box-shadow:
+    0 12px 30px rgba(0,0,0,.38),
+    0 0 0 5px rgba(22,163,74,.28);
+}
+
+#startBtn:active{
+  transform: translateY(1px);
+  filter: brightness(.98);
+}
+
+#startBtn:disabled{
+  opacity: .55;
+  cursor: not-allowed;
+  filter: none;
+  transform: none;
+}
