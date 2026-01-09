@@ -88,6 +88,33 @@ button{
   font-weight:850;
 }
 
+button.primary{
+  background: rgba(53, 208, 127, 0.25);   /* green */
+  border-color: rgba(53, 208, 127, 0.75);
+  color: #eafff4;
+
+  /* size + emphasis */
+  padding: 14px 20px;        /* bigger than other buttons */
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px rgba(53, 208, 127, 0.20),
+    0 8px 20px rgba(0,0,0,0.35);
+}
+button.primary:hover{
+  background: rgba(53, 208, 127, 0.35);
+  transform: translateY(-1px);
+}
+
+button.primary:active{
+  transform: translateY(0);
+}
+
+
+
 button:disabled{
   opacity:.45;
   cursor:not-allowed;
@@ -245,30 +272,6 @@ button:disabled{
   filter: drop-shadow(0 3px 8px rgba(0,0,0,.35));
 }
 
-/* ======= COUNTRY LABEL OVERLAY (HTML, not SVG) ======= */
-.label-layer{
-  position:absolute;
-  inset:0;
-  pointer-events:none;
-  z-index:9; /* under status pill (10), above map */
-}
-
-.country-label{
-  position:absolute;
-  transform: translate(-50%, -50%);
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: .02em;
-  color: #ffffff;
-  text-shadow:
-    0 2px 10px rgba(0,0,0,.60),
-    0 0 2px rgba(0,0,0,.85);
-  white-space: nowrap;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: rgba(0,0,0,.18);
-  border: 1px solid rgba(255,255,255,.12);
-}
 
 /* MODAL */
 .modal.hidden{ display:none; }
