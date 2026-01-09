@@ -787,3 +787,26 @@ endModal.addEventListener("click", (e) => {
 resetUI();
 loadSVG();
 setMode("all");
+
+// SPACEBAR CONTROLS
+// - Idle: Space starts (same as clicking Start)
+// - Running: Space resets to idle (Start Over), does NOT auto-start
+window.addEventListener("keydown", (e) => {
+  // Only Space
+  if (e.code !== "Space") return;
+
+  // Don't trigger while typing in inputs / textareas
+  const tag = (document.activeElement && document.activeElement.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+  // Prevent page scroll
+  e.preventDefault();
+
+  if (running) {
+    // Start Over (reset to idle, do not start automatically)
+    resetUI();
+  } else {
+    // Start
+    startBtn.click();
+  }
+});
