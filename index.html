@@ -8,12 +8,10 @@
 </head>
 
 <body>
-  <div id="app" class="layout">
-    <!-- LEFT RAIL: controls + prompt -->
-    <aside class="rail rail-left">
-      <div class="brand">
-        <div class="brand-title">Americas Map Quiz</div>
-      </div>
+  <div class="layout">
+    <!-- LEFT RAIL -->
+    <aside class="rail">
+      <div class="brand-title">Americas Map Quiz</div>
 
       <div class="modebar" id="modebar">
         <button class="modebtn active" data-mode="all">All Americas</button>
@@ -24,7 +22,6 @@
 
       <div class="btnrow">
         <button id="startBtn" class="primary">Start</button>
-        <button id="restartBtn" class="secondary" disabled>Restart</button>
       </div>
 
       <div class="prompt-block">
@@ -34,34 +31,35 @@
       </div>
     </aside>
 
-    <!-- MAP -->
+    <!-- MAP (CENTER) -->
     <main class="map-area">
       <div id="mapStatus" class="map-status">Loading map…</div>
       <div id="mapContainer" class="map-container"></div>
+      <!-- label overlay is created by app.js -->
     </main>
 
-    <!-- RIGHT RAIL: stats -->
-    <aside class="rail rail-right">
+    <!-- RIGHT RAIL -->
+    <aside class="rail">
       <div class="stats">
         <div class="stat">
-          <div class="stat-label">Time</div>
+          <div class="stat-label">TIME</div>
           <div id="timer" class="stat-value">0.0s</div>
         </div>
 
         <div class="stat">
-          <div class="stat-label">Percent</div>
+          <div class="stat-label">PERCENT</div>
           <div id="percent" class="stat-value">0%</div>
         </div>
 
         <div class="stat">
-          <div class="stat-label">Progress</div>
+          <div class="stat-label">PROGRESS</div>
           <div id="progress" class="stat-value">0 / 0</div>
         </div>
       </div>
 
       <div class="mini-results">
         <div class="mini-title">Results</div>
-        <div id="results" class="results muted">Press Start to begin.</div>
+        <div id="results" class="results muted">Press Start to begin. (Spacebar works too.)</div>
       </div>
     </aside>
   </div>
