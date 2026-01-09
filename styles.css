@@ -113,8 +113,6 @@ button.primary:active{
   transform: translateY(0);
 }
 
-
-
 button:disabled{
   opacity:.45;
   cursor:not-allowed;
@@ -272,6 +270,20 @@ button:disabled{
   filter: drop-shadow(0 3px 8px rgba(0,0,0,.35));
 }
 
+/* ======= LABELS (show after correct) ======= */
+.country-label{
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  font-weight: 950;
+  letter-spacing: .02em;
+
+  fill: rgba(255,255,255,.95);          /* white text */
+  stroke: rgba(0,0,0,.70);              /* dark outline */
+  stroke-width: 6px;                    /* makes it readable */
+  paint-order: stroke fill;             /* outline behind fill */
+
+  pointer-events: none;                 /* never blocks clicks */
+  user-select: none;
+}
 
 /* MODAL */
 .modal.hidden{ display:none; }
